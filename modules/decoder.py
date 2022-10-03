@@ -16,12 +16,15 @@ class Decoder(nn.Module):
         :param c_space_dim: Dimension of the c-space.
         :param dropout: Dropout value for the fullyconnected layer.
         '''
-        self.e_dim = e_dim
+        super().__init__()
         self.pos_ffn = PositionwiseFeedForward(e_dim, h_dim, dropout)
 
-        # Layers fro returning mean and variance
+        # Layers for returning mean and variance
         self.mu = nn.Linear(e_dim, c_space_dim)
-        self.sigma = nn.Sequential(nn.Linear(e_dim, c_space_dim), nn.ReLU)
+        self.sigma = nn.Sequential(
+            nn.Linear(e_dim, c_space_dim),
+            nn.ReLU()
+        )
 
     def forward(self, z_q):
         ''' Returns the decoded mean and variance.
