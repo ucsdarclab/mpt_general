@@ -60,3 +60,29 @@ class VectorQuantizer(nn.Module):
         z_q = z + (z_q - z).detach()
 
         return z_q, (perplexity, min_encodings, min_encoding_indices)
+
+
+class VQEmbeddingEMA(VectorQuantizer):
+    def __init__(self, n_e, e_dim, decay=0.999, epsilon=1e-5):
+        ''' Vector quantization for 
+        '''
+        super(VQEmbeddingEMA, self).__init__(n_e, e_dim)
+        self.decay = decay
+        self.epsilon = epsilon
+
+
+        self.register_buffer("ema_count", torch.zeros(n_e)+epsilon)
+        self.register_buffer("ema_weight", self.embedding.weight.clone())
+
+    def update_embedding_weights(self, encoding_flatten, one_hot_flatten):
+        ''' Update the embedding using EMA.
+        :param encoding_flatten: quantized tensor with (BxS)xE shape.
+        :param one_hot_flatten: one hot encoding of vector.
+        '''
+        self.ema_count = self.decay*self.ema_count + \
+            (1-self.decay)*one_hot_flatten.sum(axis=0)
+
+        dw = one_hot_flatten.float().T @ encoding_flatten.detach()
+        self.ema_weight = self.decay*self.ema_weight + (1-self.decay)*dw
+
+        self.embedding.weight.data = self.ema_weight/self.ema_count[:, None]
