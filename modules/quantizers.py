@@ -100,10 +100,10 @@ class VectorQuantizer(nn.Module):
 
 
 class VQEmbeddingEMA(VectorQuantizer):
-    def __init__(self, n_e, e_dim, decay=0.999, epsilon=1e-5):
+    def __init__(self, n_e, e_dim, latent_dim, decay=0.999, epsilon=1e-5):
         ''' Vector quantization for 
         '''
-        super(VQEmbeddingEMA, self).__init__(n_e, e_dim)
+        super(VQEmbeddingEMA, self).__init__(n_e, e_dim, latent_dim)
         self.decay = decay
         self.epsilon = epsilon
 
