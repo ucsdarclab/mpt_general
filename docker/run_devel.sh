@@ -10,5 +10,6 @@ docker run --rm -it \
 		-v /tmp/.X11-unix:/tmp/.X11-unix:rw \
 		-v $PWD:/workspace \
 		-v $HOME/mpt_manipulation_data:/root/data \
+		-v $HOME/global_planner_data:/root/data2d \
 		mpt:torch-o3d-pyb-tg \
 		bash
