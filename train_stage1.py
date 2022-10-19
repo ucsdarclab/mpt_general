@@ -51,7 +51,7 @@ def calculate_reconstruction_loss(input_traj, mu, sigma, mask):
     :param mask:
     :returns torch.float:
     '''
-    eps = 1e-3
+    eps = 1e-4
     dist = MultivariateNormal(mu, torch.diag_embed(sigma+eps))
     return -(dist.log_prob(input_traj)*mask).sum(dim=1).mean()
 
