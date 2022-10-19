@@ -86,12 +86,15 @@ def train_epoch(train_dataset, encoder_model, quantizer_model, decoder_model, op
         #     (output_dist-encoder_input)**2).sum(axis=1).mean()
         loss = quantization_loss + reconstruction_loss
         mask_flatten = mask.view(-1)
-        encoding_flatten = rearrange(
-            encoder_output_q, 'B S E -> (B S) E')[mask_flatten == 1, :]
-        one_hot_flatten = F.one_hot(
-            indices[mask_flatten == 1], quantizer_model.embedding.weight.shape[0]).float()
-        # quantizer_model.update_embedding_weights(
-        #     encoding_flatten, one_hot_flatten)
+        # EMA update step for the dictionary values.
+        with torch.no_grad():    
+            encoding_flatten = rearrange(
+                encoder_output, 'B S E -> (B S) E')[mask_flatten == 1, :]
+            encoding_flatten = quantizer_model.input_linear_map(encoding_flatten)
+            one_hot_flatten = F.one_hot(
+                indices[mask_flatten == 1], quantizer_model.embedding.weight.shape[0]).float()
+            quantizer_model.update_embedding_weights(
+                encoding_flatten, one_hot_flatten)
 
         loss.backward()
         optimizer.step_and_update_lr()
@@ -169,8 +172,8 @@ def main(batch_size, log_dir, num_epochs, continue_training):
         json.dump(model_args, f, sort_keys=True, indent=4)
 
     encoder_model = Encoder(**model_args)
-    quantizer_model = VectorQuantizer(n_e=1024, e_dim=8, latent_dim=model_args['d_model'])
-    # quantizer_model = VQEmbeddingEMA(n_e=1024, e_dim=model_args['d_model'])
+    # quantizer_model = VectorQuantizer(n_e=1024, e_dim=8, latent_dim=model_args['d_model'])
+    quantizer_model = VQEmbeddingEMA(n_e=1024, e_dim=8, latent_dim=model_args['d_model'])
     decoder_model = Decoder(
         e_dim=model_args['d_model'], h_dim=model_args['d_inner'], c_space_dim=model_args['c_space_dim'])
 

@@ -107,6 +107,8 @@ class VQEmbeddingEMA(VectorQuantizer):
         self.decay = decay
         self.epsilon = epsilon
 
+        # Don't update weight using gradient, rather use update weight embedding.
+        self.embedding.weight.requires_grad = False
 
         self.register_buffer("ema_count", torch.zeros(n_e)+epsilon)
         self.register_buffer("ema_weight", self.embedding.weight.clone())
