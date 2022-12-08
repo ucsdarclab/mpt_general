@@ -80,7 +80,7 @@ def train_epoch(train_dataset, encoder_model, quantizer_model, decoder_model, op
         encoder_output_q, (_, _, indices) = quantizer_model(
             encoder_output, mask)
         quantization_loss = calculate_quantization_loss(
-            encoder_output, encoder_output_q, mask, beta=1)
+            encoder_output, encoder_output_q, mask, beta=0.01)
         output_dist_mu, output_dist_sigma = decoder_model(encoder_output_q)
         reconstruction_loss = calculate_reconstruction_loss(
             encoder_input, output_dist_mu, output_dist_sigma, mask)
@@ -114,7 +114,7 @@ def eval_epoch(eval_dataset, encoder_model, quantizer_model, decoder_model, devi
         encoder_output, = encoder_model(encoder_input)
         encoder_output_q, _ = quantizer_model(encoder_output, mask)
         quantization_loss = calculate_quantization_loss(
-            encoder_output, encoder_output_q, mask, beta=1)
+            encoder_output, encoder_output_q, mask, beta=0.01)
         output_dist_mu, output_dist_sigma = decoder_model(encoder_output_q)
         reconstruction_loss = calculate_reconstruction_loss(
             encoder_input, output_dist_mu, output_dist_sigma, mask)
