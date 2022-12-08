@@ -162,10 +162,10 @@ def main(batch_size, log_dir, num_epochs, continue_training):
     with open(osp.join(log_dir, 'model_params.json'), 'w') as f:
         json.dump(model_args, f, sort_keys=True, indent=4)
 
-    encoder_model = Encoder(**model_args)
+    encoder_model = EncoderPreNorm(**model_args)
     # quantizer_model = VectorQuantizer(n_e=1024, e_dim=8, latent_dim=model_args['d_model'])
     quantizer_model = VQEmbeddingEMA(n_e=1024, e_dim=8, latent_dim=model_args['d_model'])
-    decoder_model = Decoder(
+    decoder_model = DecoderPreNorm(
         e_dim=model_args['d_model'], h_dim=model_args['d_inner'], c_space_dim=model_args['c_space_dim'])
 
     device = 'cpu'
