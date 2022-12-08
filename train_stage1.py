@@ -17,8 +17,8 @@ from os import path as osp
 from tqdm import tqdm
 
 from modules.quantizers import VQEmbeddingEMA, VectorQuantizer
-from modules.decoder import Decoder
-from modules.encoder import Encoder
+from modules.decoder import DecoderPreNorm
+from modules.encoder import EncoderPreNorm
 from modules.optim import ScheduledOptim
 
 from data_loader import PathMixedDataLoader, get_padded_sequence
