@@ -37,9 +37,9 @@ def calculate_quantization_loss(z, z_q, mask, beta):
     :param beta: scalar value, scales gradients of encoder.
     '''
     total_seq = mask.sum()
-    codebook_loss = (((z_q-z.detach())**2).sum(axis=-1)*mask).sum()
-    commitment_loss = (((z_q.detach()-z)**2).sum(axis=-1)*mask).sum()
-    loss = beta * commitment_loss/total_seq + codebook_loss/total_seq
+    codebook_loss = (((z_q-z.detach())**2).sum(axis=-1)*mask).sum()/total_seq
+    commitment_loss = (((z_q.detach()-z)**2).sum(axis=-1)*mask).sum()/total_seq
+    loss = beta * commitment_loss + codebook_loss
     return loss
 
 
