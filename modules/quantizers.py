@@ -85,16 +85,16 @@ class VectorQuantizer(nn.Module):
 
         min_encoding_indices = torch.argmin(d, dim=1)
         z_q_flattened = self.embedding(min_encoding_indices)
-
+        
+        # Preserve gradients through linear transform also
+        z_q_flattened = z_flattened + z_q_flattened - z_flattened.detach()
+        
         # Translate to output encoder shape
         z_q_flattened = self.output_linear_map(z_q_flattened)
         z_q = z_q_flattened.view(z.shape)
 
         perplexity = None
         min_encodings = None
-
-        # preserve gradients
-        z_q = z + (z_q - z).detach()
 
         return z_q, (perplexity, min_encodings, min_encoding_indices)
 
