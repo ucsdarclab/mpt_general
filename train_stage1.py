@@ -177,9 +177,9 @@ def main(batch_size, log_dir, num_epochs, continue_training):
     optimizer = ScheduledOptim(
         t_optim.Adam(list(encoder_model.parameters())+list(quantizer_model.parameters()) +
                      list(decoder_model.parameters()), betas=(0.9, 0.98), eps=1e-9),
-        lr_mul=0.25,
+        lr_mul=0.2,
         d_model=512,
-        n_warmup_steps=2400
+        n_warmup_steps=20000
     )
     # optimizer = ScheduledOptim(
     #     t_optim.Adam(list(encoder_model.parameters()) +
