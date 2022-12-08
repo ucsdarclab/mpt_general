@@ -84,8 +84,6 @@ def train_epoch(train_dataset, encoder_model, quantizer_model, decoder_model, op
         output_dist_mu, output_dist_sigma = decoder_model(encoder_output_q)
         reconstruction_loss = calculate_reconstruction_loss(
             encoder_input, output_dist_mu, output_dist_sigma, mask)
-        # reconstruction_loss = (
-        #     (output_dist-encoder_input)**2).sum(axis=1).mean()
         loss = quantization_loss + reconstruction_loss
         mask_flatten = mask.view(-1)
 
@@ -118,8 +116,6 @@ def eval_epoch(eval_dataset, encoder_model, quantizer_model, decoder_model, devi
         quantization_loss = calculate_quantization_loss(
             encoder_output, encoder_output_q, mask, beta=1)
         output_dist_mu, output_dist_sigma = decoder_model(encoder_output_q)
-        # reconstruction_loss = (
-        #     (output_dist-encoder_input)**2).sum(axis=1).mean()
         reconstruction_loss = calculate_reconstruction_loss(
             encoder_input, output_dist_mu, output_dist_sigma, mask)
         loss = quantization_loss + reconstruction_loss
@@ -238,7 +234,7 @@ def main(batch_size, log_dir, num_epochs, continue_training):
     evaluate_data = DataLoader(eval_dataset, num_workers=10,
                                batch_sampler=batch_sampler_data, collate_fn=get_padded_sequence)
 
-    # TODO(jacob): Add the train code.
+    # Add the train code.
     writer = SummaryWriter(log_dir=log_dir)
     best_eval_loss = 1e10
     for n in range(start_epoch, num_epochs):
