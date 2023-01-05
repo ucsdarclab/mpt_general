@@ -200,7 +200,7 @@ def main(args):
         start_epoch = checkpoint['epoch']
         optimizer.n_steps = checkpoint['n_steps']
 
-    for n in range(start_epoch, num_epochs):
+    for n in range(start_epoch, args.num_epochs):
         # One valing pass of the model.
         print(f"Epoch: .......{n}")
         train_loss = train_epoch(context_env_encoder, ar_model, train_data_loader, 40, optimizer, device)
