@@ -31,6 +31,9 @@ if __name__ == "__main__":
     parser.add_argument(
         '--save_dir', help="directory to save data"
     )
+    parser.add_argument(
+        '--env_type', help='train or val dataset', choices=['train', 'val']
+    )
     args = parser.parse_args()
 
     model_args = dict(
@@ -65,8 +68,8 @@ if __name__ == "__main__":
 
     for env_num in range(args.start_env, args.start_env+args.samples):
         # Check if folder exists, if not create one.
-        env_dir = osp.join(data_dir, 'train', f'env{env_num:06d}')
-        save_env_dir = osp.join(save_dir, 'train', f'env{env_num:06d}')
+        env_dir = osp.join(data_dir, args.env_type, f'env{env_num:06d}')
+        save_env_dir = osp.join(save_dir, args.env_type, f'env{env_num:06d}')
         if not osp.isdir(save_env_dir):
             os.mkdir(save_env_dir)
 
