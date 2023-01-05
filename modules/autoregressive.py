@@ -1,8 +1,5 @@
 ''' The autoregressive model for predicting steps.
 '''
-
-from matplotlib.style import context
-import torch
 import torch.nn as nn
 
 from modules.env_encoder import EnvEncoder
@@ -28,7 +25,7 @@ class AutoRegressiveModel(nn.Module):
         super().__init__()
 
         self.layer_stack = nn.ModuleList([
-            EncoderLayerPreNorm(d_model, d_inner, n_heads, d_k, d_v, dropout) 
+            EncoderLayerPreNorm(d_model, d_inner, n_heads, d_k, d_v, dropout)
             for _ in range(n_layers)
         ])
 
@@ -46,7 +43,7 @@ class AutoRegressiveModel(nn.Module):
         '''
         for attn_layer in self.layer_stack:
             enc_output = attn_layer(enc_output, slf_attn_mask)
-        
+
         # Add layer normalization to the final layer
         enc_output = self.layer_norm(enc_output)
 
@@ -59,7 +56,7 @@ class EnvContextCrossAttModel(nn.Module):
     ''' Given the context and environment model, return the cross attention model.
     '''
 
-    def __init__(self, env_params, context_params):
+    def __init__(self, env_params, context_params, robot='2D'):
         '''
         :param env_params: A dictionary with values for the following keys for the envirnoment encoder
             {n_layers, n_heads, d_k, d_v, d_model, d_inner, dropout, n_position}
@@ -67,12 +64,12 @@ class EnvContextCrossAttModel(nn.Module):
             {}
         '''
         super().__init__()
+
         # Define Environment model.
         self.env_encoder = EnvEncoder(**env_params)
 
         # Translate context embedding and do cross-attention.
         self.context_encoder = ContextEncoder(**context_params)
-
 
     def forward(self, env_input, start_goal_input):
         # Pass the input through the encoder.
