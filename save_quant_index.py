@@ -14,6 +14,7 @@ from os import path as osp
 
 import argparse
 
+from data_loader import q_max, q_min
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -34,7 +35,16 @@ if __name__ == "__main__":
     parser.add_argument(
         '--env_type', help='train or val dataset', choices=['train', 'val']
     )
+    parser.add_argument(
+        '--robot', help='type of robot', choices=['2D', '6D']
+    )
+    
     args = parser.parse_args()
+
+    if args.robot=='2D':
+        c_space_dim=2
+    if args.robot=='6D':
+        c_space_dim=6
 
     model_args = dict(
         n_layers=3,
@@ -45,7 +55,7 @@ if __name__ == "__main__":
         d_inner=1024,
         n_position=1000,
         dropout=0.1,
-        c_space_dim=2
+        c_space_dim=c_space_dim
     )
 
     device = 'cpu' if torch.cuda.is_available() else torch.device('cuda')
@@ -80,7 +90,10 @@ if __name__ == "__main__":
                 data = pickle.load(f)
             
             if data['success']:
-                path_norm = data['path_interpolated']/24
+                if args.robot=='2D':
+                    path_norm = data['path_interpolated']/24
+                if args.robot=='6D':
+                    path_norm = ((data['jointPath']-q_min)/(q_max-q_min))[:, :6]
                 encoder_input = torch.as_tensor(path_norm, dtype=torch.float)[None, :].to(device)
                 encoder_output, = encoder_model(encoder_input)
                 _, (_, _, quant_keys) = quantizer_model(encoder_output, None)
