@@ -109,7 +109,6 @@ class EnvEncoder(nn.Module):
         self.dropout = nn.Dropout(p=dropout)
         self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
 
-
     def forward(self, input_map, returns_attns=False):
         '''
         The input of the Encoder should be of dim (b, c, h, w).
@@ -121,7 +120,7 @@ class EnvEncoder(nn.Module):
         enc_output = self.reorder_dims(enc_output)
 
         enc_output = self.position_enc(enc_output, conv_map_shape)
-        
+
         enc_output = self.dropout(enc_output)
         enc_output = self.layer_norm(enc_output)
         return enc_output
