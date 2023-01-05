@@ -17,7 +17,7 @@ from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 
 from modules.autoregressive import AutoRegressiveModel, EnvContextCrossAttModel
-from modules.quantizers import VQEmbeddingEMA
+from modules.quantizers import VectorQuantizer
 from modules.optim import ScheduledOptim
 from data_loader import get_quant_padded_sequence, QuantPathMixedDataLoader
 
@@ -115,7 +115,7 @@ def main(dictionary_model_folder, batch_size, num_epochs, train_model_folder, co
     # Load the qunatizer model
     d_model=512
     num_keys = 1024
-    quantizer_model = VQEmbeddingEMA(n_e=num_keys, e_dim=8, latent_dim=d_model)
+    quantizer_model = VectorQuantizer(n_e=num_keys, e_dim=8, latent_dim=d_model)
     checkpoint = torch.load(osp.join(dictionary_model_folder, 'best_model.pkl'))
     quantizer_model.load_state_dict(checkpoint['quantizer_state'])
     
