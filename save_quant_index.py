@@ -85,7 +85,13 @@ if __name__ == "__main__":
                 encoder_output, = encoder_model(encoder_input)
                 _, (_, _, quant_keys) = quantizer_model(encoder_output, None)
 
-                quant_keys = quant_keys.unique().numpy()
+                # NOTE: Gets unique keys but also sorts the result.
+                # quant_keys = quant_keys.unique().numpy()
+                # NOTE: Gets unique keys but doesn't sort them.
+                # quant_keys = quant_keys.unique(sorted=False).flip(0).numpy()
+                # NOTE: This removes redundant keys that r consecutive, and keeps the order
+                # of the keys
+                quant_keys = quant_keys.unique_consecutive().numpy()
                 with open(osp.join(save_env_dir, path_file), 'wb') as f:
                     data = dict(keys=quant_keys)
                     pickle.dump(data, f)
