@@ -157,8 +157,6 @@ def get_padded_sequence(batch):
     :param batch: The batch to consolidate
     '''
     data = {}
-    data['map'] = torch.cat([batch_i['map'][None, :]
-                            for batch_i in batch if batch_i is not None])
     data['path'] = pad_sequence(
         [batch_i['path'] for batch_i in batch if batch_i is not None], batch_first=True)
     data['mask'] = pad_sequence([torch.ones(batch_i['path'].shape[0])
