@@ -104,14 +104,13 @@ def get_torch_dataloader(dataset, batch_size, num_workers):
         batch_sampler=batch_sampler_data, collate_fn=get_quant_padded_sequence)
 
 # define main training routine
-def main(dictionary_model_folder, batch_size, num_epochs, train_model_folder, continue_training):
+def main(args):
     ''' Main training routine for statge 2
-    :param dictionary_model_folder: folder where the dictionary model is stored.
-    :param batch_size: Number of trajectories to load.
-    :param num_epochs: Number of epochs to run the training
-    :param train_data_folder: Folder to save the trained data.
-    :param continue_training: Bool value, which if true, continues from previous training point.
     '''
+    dictionary_model_folder = args.dict_model_folder
+    train_model_folder = args.log_dir
+    batch_size = args.batch_size
+
     # Load the qunatizer model
     d_model=512
     num_keys = 1024
@@ -132,11 +131,7 @@ def main(dictionary_model_folder, batch_size, num_epochs, train_model_folder, co
     n_heads=3, 
     d_k=512,
     d_v=256, 
-    d_model=d_model, 
-    d_inner=1024,
-    dropout=0.1
-    )
-    context_env_encoder = EnvContextCrossAttModel(env_params, context_params)
+    context_env_encoder = EnvContextCrossAttModel(env_params, context_params, robot=args.robot)
     # Save the parameters used to define AR model.
     with open(osp.join(train_model_folder, 'cross_attn.json'), 'w') as f:
         json.dump(context_params, f, sort_keys=True, indent=4)
@@ -197,13 +192,13 @@ def main(dictionary_model_folder, batch_size, num_epochs, train_model_folder, co
     writer = SummaryWriter(log_dir=train_model_folder)
     best_eval_loss = 1e10
     start_epoch = 0
-    if continue_training:
+    if args.cont:
         checkpoint = torch.load(osp.join(train_model_folder, 'best_model.pkl'))
         ar_model.load_state_dict(checkpoint['ar_model_state'])
         context_env_encoder.load_state_dict(checkpoint['context_state'])
         optimizer._optimizer.load_state_dict(checkpoint['optimizer'])
         start_epoch = checkpoint['epoch']
-        optimizer.n_steps = 2496*start_epoch
+        optimizer.n_steps = checkpoint['n_steps']
 
     for n in range(start_epoch, num_epochs):
         # One valing pass of the model.
@@ -217,7 +212,8 @@ def main(dictionary_model_folder, batch_size, num_epochs, train_model_folder, co
                 'context_state': context_env_encoder.state_dict(),
                 'ar_model_state': ar_model.state_dict(),
                 'optimizer': optimizer._optimizer.state_dict(),
-                'epoch': n
+                'epoch': n,
+                'n_steps': optimizer.n_steps
             }
             torch.save(states, osp.join(train_model_folder, f'model_{n}.pkl'))
 
@@ -228,7 +224,8 @@ def main(dictionary_model_folder, batch_size, num_epochs, train_model_folder, co
                 'context_state': context_env_encoder.state_dict(),
                 'ar_model_state': ar_model.state_dict(),
                 'optimizer': optimizer._optimizer.state_dict(),
-                'epoch': n
+                'epoch': n,
+                'n_steps': optimizer.n_steps
             }
             torch.save(states, osp.join(train_model_folder, 'best_model.pkl'))
         
@@ -246,4 +243,4 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    main(args.dict_model_folder, args.batch_size, args.num_epochs, args.log_dir, args.cont)
+    main(args)
