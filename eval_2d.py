@@ -186,7 +186,10 @@ def get_beam_search_path(max_length, K, context_output, ar_model, quantizer_mode
 
     # Get first set of quant_keys
     ar_output = ar_model(ar_model_input_i, mask)
-    path_cost, start_index = F.log_softmax(ar_output[:, 2, :], dim=-1).topk(k=K, dim=-1)
+    intial_cost = F.log_softmax(ar_output[:, 2, :], dim=-1)
+    # Do not terminate on the final dictionary
+    intial_cost[:, 1025] = -1e9
+    path_cost, start_index = intial_cost.topk(k=K, dim=-1)
     start_index = start_index[0]
     path_cost = path_cost[0]
     input_seq[:, 1, :] = quantizer_model.output_linear_map(quantizer_model.embedding(start_index))
