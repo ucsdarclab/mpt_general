@@ -164,7 +164,7 @@ def main(args):
     )
 
     # Define the train dataloader
-    train_data_loader = QuantPathMixedDataLoader(
+    train_dataset = QuantPathMixedDataLoader(
         quantizer_model, 
         list(range(750))+list(range(1000, 1750)), 
         '/root/data2d/maze4/train',
@@ -174,10 +174,10 @@ def main(args):
         osp.join(dictionary_model_folder, 'quant_key/forest/train')
     )
 
-    train_dataset = get_torch_dataloader(train_data_loader, batch_size, num_workers=20)
+    train_data_loader = get_torch_dataloader(train_dataset, batch_size, num_workers=20)
 
     # Define the eval dataloader
-    val_data_loader = QuantPathMixedDataLoader(
+    val_dataset = QuantPathMixedDataLoader(
         quantizer_model, 
         list(range(500)), 
         '/root/data2d/maze4/val',
@@ -203,8 +203,8 @@ def main(args):
     for n in range(start_epoch, num_epochs):
         # One valing pass of the model.
         print(f"Epoch: .......{n}")
-        train_loss = train_epoch(context_env_encoder, ar_model, train_dataset, 40, optimizer, device)
-        eval_loss = eval_epoch(context_env_encoder, ar_model, eval_dataset, 40, device)
+        train_loss = train_epoch(context_env_encoder, ar_model, train_data_loader, 40, optimizer, device)
+        eval_loss = eval_epoch(context_env_encoder, ar_model, val_data_loader, 40, device)
     
         # Periodically save trainiend model
         if (n+1) % 10 == 0:
