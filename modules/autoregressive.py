@@ -2,11 +2,12 @@
 '''
 import torch.nn as nn
 
-from modules.env_encoder import EnvEncoder
+from modules.env_encoder import EnvEncoder, FeatureExtractor
 from modules.context_encoder import ContextEncoder
 from modules.encoder import EncoderLayerPreNorm
 
-from einops.layers.torch import Rearrange
+import torch_geometric.utils as tg_utils
+
 
 class AutoRegressiveModel(nn.Module):
     ''' Get the encoder input and convert it to set of logits values.
@@ -66,16 +67,30 @@ class EnvContextCrossAttModel(nn.Module):
         super().__init__()
 
         # Define Environment model.
-        self.env_encoder = EnvEncoder(**env_params)
+        if robot == '2D':
+            self.env_encoder = EnvEncoder(**env_params)
+
+        if robot == '6D':
+            self.env_encoder = FeatureExtractor(**env_params)
+
+        self.robot = robot
 
         # Translate context embedding and do cross-attention.
         self.context_encoder = ContextEncoder(**context_params)
 
     def forward(self, env_input, start_goal_input):
         # Pass the input through the encoder.
-        env_encoding_output = self.env_encoder(env_input)
+        if self.robot == '2D':
+            env_encoding_output = self.env_encoder(env_input)
+            # Take the cross attention model.
+            cross_encoding_output, = self.context_encoder(
+                start_goal_input, env_encoding_output)
 
-        # Take the cross attention model.
-        cross_encoding_output, = self.context_encoder(start_goal_input, env_encoding_output)
+        if self.robot == '6D':
+            (h, _, batch), _ = self.env_encoder(env_input)
+            env_encoding_output, dec_mask = tg_utils.to_dense_batch(h, batch)
+            # Take the cross attention model
+            cross_encoding_output, = self.context_encoder(
+                start_goal_input, env_encoding_output, env_encoding_mask=dec_mask)
 
         return cross_encoding_output
