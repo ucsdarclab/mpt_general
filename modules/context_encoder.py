@@ -37,6 +37,7 @@ class ContextEncoder(nn.Module):
         ])
         self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
 
+    def forward(self, context, env_encoding, env_encoding_mask=None):
         '''
         :param context: the s/g pairs or textk embeddings.
         :param env_encoding: Environment encoding from PC++ or FCN layers
@@ -46,7 +47,8 @@ class ContextEncoder(nn.Module):
 
         # Pass the environment embedding through the decoder layer.
         for cross_layer in self.layer_stack:
-            context_embedding = cross_layer(context_embedding, env_encoding)
+            context_embedding = cross_layer(
+                context_embedding, env_encoding, dec_enc_attn_mask=env_encoding_mask)
 
         context_embedding = self.layer_norm(context_embedding)
         return context_embedding,
