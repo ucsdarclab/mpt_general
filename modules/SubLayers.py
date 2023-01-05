@@ -2,10 +2,11 @@
 Derived From : https://github.com/jadore801120/attention-is-all-you-need-pytorch/blob/master/transformer/SubLayers.py
 '''
 
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from einops import repeat
 
 class ScaledDotProductAttention(nn.Module):
     '''Scaled Dot-Product Attention 
@@ -21,7 +22,7 @@ class ScaledDotProductAttention(nn.Module):
         self.temperature = temperature
         self.dropout = nn.Dropout(attn_dropout)
 
-    def forward(self, q, k, v, mask=None):
+    def forward(self, q, k, v, mask=None, dec_mask=None):
         '''
         Callback Function:
         :param q: The Query matrix.
@@ -32,12 +33,22 @@ class ScaledDotProductAttention(nn.Module):
         '''
         attn = torch.matmul(q / self.temperature, k.transpose(2, 3))
 
+        # # mask size is expected to be b x n
+        #     row_mask = mask[:, None, None]
+        #     attn = attn.masked_fill(row_mask == 0, -1e9)
+        #     col_mask = mask[:, None, :, None]
+        #     attn = attn.masked_fill(col_mask == 0, -1e9)
+
+        # mask size is expected to be b x n_head x n
         if mask is not None:
-            # mask size is expected to be b x n
-            row_mask = mask[:, None, None]
+            row_mask = mask.unsqueeze(2)
             attn = attn.masked_fill(row_mask == 0, -1e9)
-            col_mask = mask[:, None, :, None]
+            col_mask = mask.unsqueeze(3)
             attn = attn.masked_fill(col_mask == 0, -1e9)
+        
+        if dec_mask is not None:
+            row_mask = dec_mask.unsqueeze(2)
+            attn = attn.masked_fill(row_mask==0, -1e9)
 
         attn = self.dropout(F.softmax(attn, dim=-1))
         output = torch.matmul(attn, v)
@@ -99,7 +110,7 @@ class MultiHeadAttention(nn.Module):
         q, k, v = q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
 
         if mask is not None:
-            mask = mask.unsqueeze(1)   # For head axis broadcasting.
+            mask = repeat(mask, 'b lq -> b n lq', n=n_head)
 
         q = self.attention(q, k, v, mask=mask)
 
@@ -143,13 +154,14 @@ class MultiHeadAttentionPreNorm(nn.Module):
         self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
 
 
-    def forward(self, q, k, v, mask=None):
+    def forward(self, q, k, v, mask=None, dec_mask=None):
         '''
         Callback function.
         :param q: The Query matrix.
         :param k: The Key matrix.
         :param v: The value matrix.
         :param mask: The mask to use.
+        :param dec_mask: applies mask only on the query input.
         :returns (output, attention): A tuple consisting of network output and softmax(QK^T)
         '''
         d_k, d_v, n_head = self.d_k, self.d_v, self.n_head
@@ -172,10 +184,12 @@ class MultiHeadAttentionPreNorm(nn.Module):
         # Transpose for attention dot product: b x n x lq x dv
         q, k, v = q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
 
-        # if mask is not None:            
-        #     mask = mask.unsqueeze(1)   # For head axis broadcasting.
+        if mask is not None:
+            mask = repeat(mask, 'b lq -> b n lq', n=n_head)
+        if dec_mask is not None:
+            dec_mask = repeat(dec_mask, 'b lq -> b n lq', n=n_head)
 
-        q = self.attention(q, k, v, mask=mask)
+        q = self.attention(q, k, v, mask=mask, dec_mask=dec_mask)
 
         # Transpose to move the head dimension back: b x lq x n x dv
         # Combine the last two dimensions to concatenate all the heads together: b x lq x (n*dv)
