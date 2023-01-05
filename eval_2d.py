@@ -23,7 +23,7 @@ try:
 except ImportError:
     raise "Run code from a container with OMPL installed"
 
-from modules.quantizers import VQEmbeddingEMA
+from modules.quantizers import VectorQuantizer
 from modules.decoder import DecoderPreNorm
 from modules.encoder import EncoderPreNorm
 
@@ -234,7 +234,7 @@ def main(args):
     # ========================= Load trained model ===========================
     # Define the models
     d_model = 512
-    quantizer_model = VQEmbeddingEMA(n_e=1024, e_dim=8, latent_dim=d_model)
+    quantizer_model = VectorQuantizer(n_e=1024, e_dim=8, latent_dim=d_model)
 
     # Load quantizer model.
     dictionary_model_folder = args.dict_model_folder
