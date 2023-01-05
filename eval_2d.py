@@ -54,7 +54,7 @@ class StateSamplerRegion(ob.StateSampler):
             self.X = None
             self.U = stats.uniform(np.zeros_like(qMin), np.ones_like(qMax))
         else:
-            self.X = MultivariateNormal(dist_mu,torch.diag_embed(dist_sigma+eps))
+            self.X = MultivariateNormal(dist_mu,torch.diag_embed(dist_sigma))
                        
     def get_random_samples(self):
         '''Generates a random sample from the list of points
