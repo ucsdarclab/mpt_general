@@ -55,6 +55,19 @@ def calculate_reconstruction_loss(input_traj, mu, sigma, mask):
     return -(dist.log_prob(input_traj)*mask).sum(dim=1).mean()
 
 
+def calculate_reconstruction_loss_v2(input_traj, mu, sigma, mask, gamma):
+    ''' Calculates the likelihood of trajectory and entropy.
+    :param mu:
+    :param sigma:
+    :param mask:
+    :returns torch.float: 
+    '''
+    dist = MultivariateNormal(mu, torch.diag_embed(sigma))
+    neg_likelihood = -(dist.log_prob(input_traj)*mask).sum(dim=1).mean()
+    neg_entropy = -(dist.entropy()*mask).sum(1).mean()
+    return neg_likelihood + gamma*neg_entropy
+
+
 def train_epoch(train_dataset, encoder_model, quantizer_model, decoder_model, optimizer, device):
     '''Train one epoch of the model.
     :param train_dataset:
@@ -79,8 +92,8 @@ def train_epoch(train_dataset, encoder_model, quantizer_model, decoder_model, op
         quantization_loss = calculate_quantization_loss(
             encoder_output, encoder_output_q, mask, beta=0.01)
         output_dist_mu, output_dist_sigma = decoder_model(encoder_output_q)
-        reconstruction_loss = calculate_reconstruction_loss(
-            encoder_input, output_dist_mu, output_dist_sigma, mask)
+        reconstruction_loss = calculate_reconstruction_loss_v2(
+            encoder_input, output_dist_mu, output_dist_sigma, mask, gamma=0.1)
         loss = quantization_loss + reconstruction_loss
         mask_flatten = mask.view(-1)
 
@@ -113,8 +126,8 @@ def eval_epoch(eval_dataset, encoder_model, quantizer_model, decoder_model, devi
         quantization_loss = calculate_quantization_loss(
             encoder_output, encoder_output_q, mask, beta=0.01)
         output_dist_mu, output_dist_sigma = decoder_model(encoder_output_q)
-        reconstruction_loss = calculate_reconstruction_loss(
-            encoder_input, output_dist_mu, output_dist_sigma, mask)
+        reconstruction_loss = calculate_reconstruction_loss_v2(
+            encoder_input, output_dist_mu, output_dist_sigma, mask, gamma=0.1)
         loss = quantization_loss + reconstruction_loss
         total_loss += loss.item()
         total_reconstructional_loss += reconstruction_loss.item()
