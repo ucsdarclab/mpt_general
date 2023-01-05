@@ -20,6 +20,7 @@ from modules.autoregressive import AutoRegressiveModel, EnvContextCrossAttModel
 from modules.quantizers import VectorQuantizer
 from modules.optim import ScheduledOptim
 from data_loader import get_quant_padded_sequence, QuantPathMixedDataLoader
+from data_loader import QuantManipulationDataLoader, get_quant_manipulation_sequence
 
 def calculate_loss(context_output, ar_model, batch_data, batch_size, device):
     ''' Calculates loss for each trajectory by training the auto-regressive model to maximize
@@ -27,7 +28,7 @@ def calculate_loss(context_output, ar_model, batch_data, batch_size, device):
 
     '''
     loss = 0
-    total_num_trajectories  = batch_data['map'].shape[0]
+    total_num_trajectories  = batch_data['target_seq_id'].shape[0]
     for i in range(total_num_trajectories):
         offset = max(int((batch_data['length'][i])/batch_size), 1)
         total_length = min(batch_size*offset, int(batch_data['length'][i])-1)
@@ -119,18 +120,37 @@ def main(args):
     quantizer_model.load_state_dict(checkpoint['quantizer_state'])
     
     # Define Cross attention model
-    env_params = {
-    'd_model': d_model,
-    'dropout': 0.1,
-    'n_position': 40*40
-    }
+    if args.robot == '2D':
+        env_params = {
+        'd_model': d_model,
+        'dropout': 0.1,
+        'n_position': 40*40
+        }
 
-    context_params = dict(
-    d_context=2,
-    n_layers=3,
-    n_heads=3, 
-    d_k=512,
-    d_v=256, 
+        context_params = dict(
+        d_context=2,
+        n_layers=3,
+        n_heads=3, 
+        d_k=512,
+        d_v=256, 
+        d_model=d_model, 
+        d_inner=1024,
+        dropout=0.1
+        )
+    if args.robot == '6D':
+        env_params = dict(d_model=d_model)
+
+        context_params = dict(
+        d_context=6,
+        n_layers=3,
+        n_heads=3, 
+        d_k=512,
+        d_v=256, 
+        d_model=512, 
+        d_inner=1024,
+        dropout=0.1
+        )
+
     context_env_encoder = EnvContextCrossAttModel(env_params, context_params, robot=args.robot)
     # Save the parameters used to define AR model.
     with open(osp.join(train_model_folder, 'cross_attn.json'), 'w') as f:
@@ -163,31 +183,49 @@ def main(args):
         n_warmup_steps=2400
     )
 
-    # Define the train dataloader
-    train_dataset = QuantPathMixedDataLoader(
-        quantizer_model, 
-        list(range(750))+list(range(1000, 1750)), 
-        '/root/data2d/maze4/train',
-        osp.join(dictionary_model_folder, 'quant_key/maze4/train'),
-        list(range(1500)),
-        '/root/data2d/forest/train',
-        osp.join(dictionary_model_folder, 'quant_key/forest/train')
-    )
+    if args.robot=='2D':
+        # Define the train dataloader
+        train_dataset = QuantPathMixedDataLoader(
+            quantizer_model, 
+            list(range(750))+list(range(1000, 1750)), 
+            '/root/data2d/maze4/train',
+            osp.join(dictionary_model_folder, 'quant_key/maze4/train'),
+            list(range(1500)),
+            '/root/data2d/forest/train',
+            osp.join(dictionary_model_folder, 'quant_key/forest/train')
+        )
 
-    train_data_loader = get_torch_dataloader(train_dataset, batch_size, num_workers=20)
+        train_data_loader = get_torch_dataloader(train_dataset, batch_size, num_workers=20)
 
-    # Define the eval dataloader
-    val_dataset = QuantPathMixedDataLoader(
-        quantizer_model, 
-        list(range(500)), 
-        '/root/data2d/maze4/val',
-        osp.join(dictionary_model_folder, 'quant_key/maze4/val'),
-        list(range(500)),
-        '/root/data2d/forest/val',
-        osp.join(dictionary_model_folder, 'quant_key/forest/val')
-    )
+        # Define the eval dataloader
+        val_dataset = QuantPathMixedDataLoader(
+            quantizer_model, 
+            list(range(500)), 
+            '/root/data2d/maze4/val',
+            osp.join(dictionary_model_folder, 'quant_key/maze4/val'),
+            list(range(500)),
+            '/root/data2d/forest/val',
+            osp.join(dictionary_model_folder, 'quant_key/forest/val')
+        )
 
-    eval_dataset = get_torch_dataloader(val_data_loader, batch_size, num_workers=10)
+        val_data_loader = get_torch_dataloader(val_dataset, batch_size, num_workers=10)
+
+    if args.robot == '6D':
+        train_dataset = QuantManipulationDataLoader(
+            quantizer_model, 
+            list(range(1000)),
+            '/root/data/pandav3/train/',
+            '/root/data/general_mpt/model1/quant_key/pandav3/train/'
+        )
+        train_data_loader = DataLoader(train_dataset, num_workers=15, batch_size=batch_size, collate_fn=get_quant_manipulation_sequence)
+
+        val_dataset = QuantManipulationDataLoader(
+            quantizer_model,
+            list(range(2000, 2500)),
+            '/root/data/pandav3/val',
+            '/root/data/general_mpt/model1/quant_key/pandav3/val'
+        )
+        val_data_loader = DataLoader(val_dataset, num_workers=10, batch_size=batch_size, collate_fn=get_quant_manipulation_sequence)
     
     writer = SummaryWriter(log_dir=train_model_folder)
     best_eval_loss = 1e10
@@ -240,6 +278,7 @@ if __name__ == "__main__":
     parser.add_argument('--log_dir', help="Directory to save data related to training")
     parser.add_argument('--batch_size', help="Number of trajectories to load in each batch", type=int)
     parser.add_argument('--cont', help="Continue training the model", action='store_true')
+    parser.add_argument('--robot', help="Choose the robot model to train", choices=['2D', '6D'])
 
     args = parser.parse_args()
 
