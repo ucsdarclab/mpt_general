@@ -1,6 +1,7 @@
 ''' VAE style decoder.
 '''
 import torch.nn as nn
+import torch.nn.functional as F
 
 from modules.SubLayers import PositionwiseFeedForward, MultiHeadAttention
 from modules.SubLayers import PositionwiseFeedForwardPreNorm, MultiHeadAttentionPreNorm
@@ -22,7 +23,7 @@ class DecoderLayer(nn.Module):
         self.enc_attn = MultiHeadAttentionPreNorm(n_head, d_model, d_k, d_v, dropout=dropout)
         self.pos_ffn = PositionwiseFeedForwardPreNorm(d_model, d_inner, dropout=dropout)
 
-    def forward(self, dec_input, enc_output, slf_attn_mask=None, dec_enc_attn_mask=None):
+    def forward(self, dec_input, enc_output, dec_enc_attn_mask=None):
         '''
         Callback function
         :param dec_input:
@@ -30,7 +31,7 @@ class DecoderLayer(nn.Module):
         :param slf_attn_mask:
         :param dec_enc_attn_mask:
         '''
-        dec_output = self.enc_attn(dec_input, enc_output, enc_output, mask=dec_enc_attn_mask)
+        dec_output = self.enc_attn(dec_input, enc_output, enc_output, dec_mask=dec_enc_attn_mask)
         dec_output = self.pos_ffn(dec_output)
         return dec_output
 
