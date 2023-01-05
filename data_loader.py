@@ -234,25 +234,28 @@ def get_quant_padded_sequence(batch):
     data['input_seq'] = pad_sequence(
         [batch_i['input_seq'] for batch_i in batch], batch_first=True)
     data['target_seq_id'] = pad_sequence([batch_i['target_seq_id']
-                                for batch_i in batch], batch_first=True)
-    data['length'] = torch.tensor([batch_i['input_seq'].shape[0]+1 for batch_i in batch])
-    data['start_n_goal'] = torch.cat([batch_i['start_n_goal'][None, :] for batch_i in batch])
+                                          for batch_i in batch], batch_first=True)
+    data['length'] = torch.tensor(
+        [batch_i['input_seq'].shape[0]+1 for batch_i in batch])
+    data['start_n_goal'] = torch.cat(
+        [batch_i['start_n_goal'][None, :] for batch_i in batch])
     return data
+
 
 class QuantPathMixedDataLoader(Dataset):
     '''Loads the qunatized path.
     '''
 
     def __init__(
-            self, 
-            quantizer_model, 
-            envListMaze,
-            dataFolderMaze,
-            quant_data_folder_maze,
-            envListForest, 
-            dataFolderForest,
-            quant_data_folder_forest
-        ):
+        self,
+        quantizer_model,
+        envListMaze,
+        dataFolderMaze,
+        quant_data_folder_maze,
+        envListForest,
+        dataFolderForest,
+        quant_data_folder_forest
+    ):
         '''
         :param envListMaze: The list of map environments to collect data from Maze.
         :param dataFolderMaze: The parent folder where the maze path files are located.
@@ -271,16 +274,17 @@ class QuantPathMixedDataLoader(Dataset):
         self.num_env = len(envListForest) + len(envListMaze)
         self.indexDictMaze = [('M', envNum, int(re.findall(r'\d+', f)[0]))
                               for envNum in envListMaze
-                              for f in os.listdir(osp.join(quant_data_folder_maze, f'env{envNum:06d}')) if f[-2:]=='.p'
+                              for f in os.listdir(osp.join(quant_data_folder_maze, f'env{envNum:06d}')) if f[-2:] == '.p'
                               ]
         self.indexDictForest = [('F', envNum, int(re.findall(r'\d+', f)[0]))
                                 for envNum in envListForest
-                                for f in os.listdir(osp.join(quant_data_folder_forest, f'env{envNum:06d}')) if f[-2:]=='.p'
+                                for f in os.listdir(osp.join(quant_data_folder_forest, f'env{envNum:06d}')) if f[-2:] == '.p'
                                 ]
         self.dataFolder = {'F': dataFolderForest, 'M': dataFolderMaze}
-        self.quant_data_folder = {'F': quant_data_folder_forest, 'M': quant_data_folder_maze}
+        self.quant_data_folder = {
+            'F': quant_data_folder_forest, 'M': quant_data_folder_maze}
         self.quantizer_model = quantizer_model
-        
+
         total_num_embedding = quantizer_model.embedding.weight.shape[0]
         self.start_index = total_num_embedding
         self.goal_index = total_num_embedding + 1
@@ -296,25 +300,29 @@ class QuantPathMixedDataLoader(Dataset):
         DF, env, idx_sample = idx
         dataFolder = self.dataFolder[DF]
         quant_data_folder = self.quant_data_folder[DF]
-        
+
         map_env = skimage.io.imread(
             osp.join(dataFolder, f'env{env:06d}', f'map_{env}.png'), as_gray=True)
 
         with open(osp.join(quant_data_folder, f'env{env:06d}', f'path_{idx_sample}.p'), 'rb') as f:
             quant_data = pickle.load(f)
-            
+
         with open(osp.join(dataFolder, f'env{env:06d}', f'path_{idx_sample}.p'), 'rb') as f:
             data = pickle.load(f)
-    
+
         with torch.no_grad():
-            quant_vector = self.quantizer_model.embedding(torch.tensor(quant_data['keys']))
-            quant_proj_vector = self.quantizer_model.output_linear_map(quant_vector)
+            quant_vector = self.quantizer_model.embedding(
+                torch.tensor(quant_data['keys']))
+            quant_proj_vector = self.quantizer_model.output_linear_map(
+                quant_vector)
 
         # add start vector and goal vector:
-        input_seq = torch.cat([torch.ones(1, 512)*-1, quant_proj_vector, torch.ones(1, 512)], dim=0)
-        input_seq_keys = np.r_[self.start_index, quant_data['keys'], self.goal_index]
+        input_seq = torch.cat(
+            [torch.ones(1, 512)*-1, quant_proj_vector, torch.ones(1, 512)], dim=0)
+        input_seq_keys = np.r_[self.start_index,
+                               quant_data['keys'], self.goal_index]
         # Normalize the start and goal points
-        start_n_goal = data['path'][[0,-1], :]/24
+        start_n_goal = data['path'][[0, -1], :]/24
         return {
             'map': torch.as_tensor(map_env[None, :], dtype=torch.float),
             'start_n_goal': torch.as_tensor(start_n_goal, dtype=torch.float),
