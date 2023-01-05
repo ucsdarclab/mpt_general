@@ -1,6 +1,7 @@
 ''' Defining layers for converting maps to latent encodings.
 '''
 
+import torch_geometric.nn as tgnn
 import torch
 import torch.nn as nn
 
@@ -124,6 +125,80 @@ class EnvEncoder(nn.Module):
         enc_output = self.dropout(enc_output)
         enc_output = self.layer_norm(enc_output)
         return enc_output
+
+# Point cloud encoder
+class SAModule(nn.Module):
+    ''' The set abstraction layer
+    '''
+    def __init__(self, ratio, r, channels):
+        ''' Initialization of the model.
+        :param ratio: Amount of points dropped
+        :param r: the radius of grouping
+        :param channels: Shared weights for each latent vectors
+        '''
+        super(SAModule, self).__init__()
+        self.ratio = ratio
+        self.r = r
+        mlp  = nn.Sequential(*[
+            nn.Sequential(
+                nn.Linear(c, channels[i+1]),
+                nn.ReLU(),
+                nn.BatchNorm1d(channels[i+1])
+            )
+            for i, c in enumerate(channels[:-1])
+
+        ])
+        # NOTE: "Here, we do not really want to add self-loops to the graph as we are operating in
+        # bipartite graphs. The real "self-loop" is already added to tgnn.PointConv by the radius call."
+        # Ref: https://github.com/pyg-team/pytorch_geometric/issues/2558
+        self.conv = tgnn.PointConv(local_nn = mlp, add_self_loops=False).jittable()
+        
+    def forward(self, x, pos, batch):
+        ''' Forward propogation of the model.
+        '''
+        # Reduce the density of point cloud by farthest point sampling
+        # random_start=False, This is to ensure origin is added to the graph
+        idx = tgnn.fps(pos, batch, ratio=self.ratio, random_start=False)
+        # row - indexes for y
+        # col - indexes for x
+        row, col = tgnn.radius(pos, pos[idx], self.r, batch, batch[idx], max_num_neighbors=64)
+        # readjust the indexes for creating edge_index.
+        newRow = idx[row]
+        edge_index = torch.stack([col, newRow], dim=0)
+        x = self.conv(x, pos, edge_index)
+        pos, batch =pos[idx], batch[idx]
+        return x[idx], pos, batch, idx
+
+
+class FeatureExtractor(torch.nn.Module):
+    ''' Extract features from using PointNet++ architecture
+    '''
+
+    def __init__(self, d_model):
+        '''Initialize the network.
+        :param input_dim: dimension of the point cloud data point.
+        :param d_model: dimension of the final latent layer
+        ''' 
+        super(FeatureExtractor, self).__init__()
+        self.sa1_module = SAModule(
+            0.75, 0.2, channels=[3+3, 64, 128])
+        self.sa2_module = SAModule(
+            0.75, 0.4, channels=[128+3, 256, d_model])
+
+    def forward(self, data):
+        '''
+        :param data: An object of type torch_geometric.data.Batch
+        :returns tuple: (latent_vector, tensor_point, batch)
+        '''
+        allIndex = torch.arange(data.pos.shape[0], device=data.pos.device)
+        *h_pos_batch, idx = self.sa1_module(data.pos, data.pos, data.batch)
+        allIndex = allIndex[idx]
+        # dataID = data.dataID[idx]
+        *h_pos_batch, idx = self.sa2_module(*h_pos_batch)
+        allIndex = allIndex[idx]
+        # dataID = dataID[idx]
+        # return h_pos_batch, dataID, allIndex
+        return h_pos_batch, allIndex
 
 # class EnvEncoder(nn.Module):
 #     ''' The environment encoder of the planner.
