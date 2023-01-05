@@ -167,11 +167,11 @@ def main(args):
     train_data_loader = QuantPathMixedDataLoader(
         quantizer_model, 
         list(range(750))+list(range(1000, 1750)), 
-        '/root/data2d/maze4/train', 
-        '/root/data2d/general_mpt/model30/quant_key/maze4/train',
+        '/root/data2d/maze4/train',
+        osp.join(dictionary_model_folder, 'quant_key/maze4/train'),
         list(range(1500)),
         '/root/data2d/forest/train',
-        '/root/data2d/general_mpt/model30/quant_key/forest/train'
+        osp.join(dictionary_model_folder, 'quant_key/forest/train')
     )
 
     train_dataset = get_torch_dataloader(train_data_loader, batch_size, num_workers=20)
@@ -180,11 +180,11 @@ def main(args):
     val_data_loader = QuantPathMixedDataLoader(
         quantizer_model, 
         list(range(500)), 
-        '/root/data2d/maze4/val', 
-        '/root/data2d/general_mpt/model30/quant_key/maze4/val',
+        '/root/data2d/maze4/val',
+        osp.join(dictionary_model_folder, 'quant_key/maze4/val'),
         list(range(500)),
         '/root/data2d/forest/val',
-        '/root/data2d/general_mpt/model30/quant_key/forest/val'
+        osp.join(dictionary_model_folder, 'quant_key/forest/val')
     )
 
     eval_dataset = get_torch_dataloader(val_data_loader, batch_size, num_workers=10)
