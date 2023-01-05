@@ -307,7 +307,7 @@ def main(args):
                 # if reached_goal.shape[1] > 0:
                 if len(reached_goal) > 0:
                     # Get the distribution.
-                    output_dist_mu, output_dist_sigma = decoder_model(input_seq[reached_goal[0, 0], :reached_goal[0, 1]])
+                    output_dist_mu, output_dist_sigma = decoder_model(input_seq[reached_goal[0, 0], 1:reached_goal[0, 1]+1])
                     dist_mu = output_dist_mu.detach().cpu().squeeze()
                     dist_sigma = output_dist_sigma.detach().cpu().squeeze()
                     if len(dist_mu.shape) == 1:
