@@ -297,7 +297,7 @@ def main(args):
             if data['success']:
                 # Get the context.
                 start_time = time.time()
-                start_n_goal = torch.as_tensor(path[[0, -1], :]/25, dtype=torch.float)
+                start_n_goal = torch.as_tensor(path[[0, -1], :]/24, dtype=torch.float)
                 env_input = torch.as_tensor(env_map[None, :], dtype=torch.float)
                 context_output = context_env_encoder(env_input[None, :].to(device), start_n_goal[None, :].to(device))
                 # Find the sequence of dict values using beam search
