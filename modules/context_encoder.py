@@ -4,9 +4,11 @@ import torch.nn as nn
 
 from modules.decoder import DecoderLayer
 
+
 class ContextEncoder(nn.Module):
     ''' Converting s/g points to planning context.
     '''
+
     def __init__(self, d_context, d_k, d_v, d_model, d_inner, n_layers, n_heads, dropout=0.1):
         '''
         :param d_context: input size of the context map.
@@ -35,7 +37,10 @@ class ContextEncoder(nn.Module):
         ])
         self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
 
-    def forward(self, context, env_encoding):
+        '''
+        :param context: the s/g pairs or textk embeddings.
+        :param env_encoding: Environment encoding from PC++ or FCN layers
+        '''
         # pass the context through the feed-forward network.
         context_embedding = self.to_latent_embedding(context)
 
