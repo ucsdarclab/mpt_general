@@ -86,7 +86,6 @@ class DecoderPreNorm(nn.Module):
         )
         self.sigma = nn.Sequential(
             nn.Linear(e_dim, c_space_dim),
-            nn.ReLU()
         )
 
     def forward(self, z_q):
@@ -95,4 +94,5 @@ class DecoderPreNorm(nn.Module):
         :returns tuple: mean and diagonal variance vectors.
         '''
         z_q = self.pos_ffn(z_q)
-        return (self.mu(z_q)+1)/2, self.sigma(z_q)
+        var = F.softplus(self.sigma(z_q))
+        return (self.mu(z_q)+1)/2, var
