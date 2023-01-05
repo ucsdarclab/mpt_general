@@ -76,7 +76,6 @@ class DecoderPreNorm(nn.Module):
         :param dropout: Dropout value for the fullyconnected layer.
         '''
         super().__init__()
-        # self.pos_ffn = PositionwiseFeedForwardPreNorm(e_dim, h_dim, dropout)
         self.pos_ffn = PositionwiseFeedForward(e_dim, h_dim, dropout)
 
         # Layers for returning mean and variance
