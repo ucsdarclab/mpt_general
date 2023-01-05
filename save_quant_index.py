@@ -1,7 +1,7 @@
 ''' A script to save qunatized indexes.
 '''
 
-from modules.quantizers import VQEmbeddingEMA
+from modules.quantizers import VectorQuantizer
 from modules.encoder import EncoderPreNorm
 
 import numpy as np
@@ -48,7 +48,7 @@ if __name__ == "__main__":
     device = 'cpu' if torch.cuda.is_available() else torch.device('cuda')
 
     encoder_model = EncoderPreNorm(**model_args)
-    quantizer_model = VQEmbeddingEMA(
+    quantizer_model = VectorQuantizer(
         n_e=1024, e_dim=8, latent_dim=model_args['d_model'])
 
     checkpoint = torch.load(osp.join(args.model_dir, 'best_model.pkl'))
