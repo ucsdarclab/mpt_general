@@ -20,10 +20,6 @@ q_min = np.array([-2.8973, -1.7628, -2.8973, -3.0718, -
                  2.8973, -0.0175, -2.8973])[None, :]
 
 
-connection_mode = pyb.DIRECT
-p = bc.BulletClient(connection_mode=connection_mode)
-pyb.setAdditionalSearchPath(pybullet_data.getDataPath())
-
 # Spawn robot
 def set_robot(client_obj):
     ''' Spawn the robot in the environment.
@@ -197,18 +193,37 @@ class ValidityCheckerDistance(ob.StateValidityChecker):
         minDist = np.min(collMat)
         return minDist<0 and not np.isclose(minDist, 0.0)
 
-def set_env(space, num_boxes, num_spheres, seed):
+def get_pybullet_server(connection_type):
+    '''
+    Returns the pybullet object, after creating the server.
+    :param connection_type: GUI/DIRECT
+    :returns bc.BulletClient:
+    '''
+    if connection_type=='direct':
+        connection_mode = pyb.DIRECT
+    elif connection_type=='gui':
+        connection_mode = pyb.GUI
+    else:
+        raise TypeError
+
+    p = bc.BulletClient(connection_mode=connection_mode)
+    pyb.setAdditionalSearchPath(pybullet_data.getDataPath())
+    return p
+
+def set_env(client_obj, space, num_boxes, num_spheres, seed):
     '''
     Generate environment with randomly placed obstacles in space.
+    :param client_obj: bc.BulletClient object
     :param space: An ompl space object.
     :param num_boxes:
     :param num_spheres:
     :param seed:
     :returns ValidityCheckerObj:
     '''
-    set_simulation_env(p)
-    panda, joints, _ = set_robot(p)
-    obstacles = set_obstacles(p, num_boxes=num_boxes, num_spheres=num_spheres, seed = seed)
+
+    set_simulation_env(client_obj)
+    panda, joints, _ = set_robot(client_obj)
+    obstacles = set_obstacles(client_obj, num_boxes=num_boxes, num_spheres=num_spheres, seed = seed)
     si = ob.SpaceInformation(space)   
     ValidityCheckerObj = ValidityCheckerDistance(si, obstacles, panda, joints)
     return ValidityCheckerObj
