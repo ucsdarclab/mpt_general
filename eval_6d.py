@@ -85,20 +85,16 @@ class StateSamplerRegion(ob.StateSampler):
         return True
 
 
-def get_ompl_state(space, state):
-    ''' Returns an OMPL state
+def getPathLengthObjective(cost, si):
     '''
-    ompl_state = ob.State(space)
-    for i in range(7):
-        ompl_state[i] = state[i]
-    return ompl_state
-
-def get_numpy_state(state):
-    ''' Return the state as a numpy array.
-    :param state: An ob.State from ob.RealVectorStateSpace
-    :return np.array:
+    Return the threshold objective for early termination
+    :param cost: The cost of the original RRT* path
+    :param si: An object of class ob.SpaceInformation
+    :returns : An object of class ob.PathLengthOptimizationObjective
     '''
-    return np.array([state[i] for i in range(7)])
+    obj = ob.PathLengthOptimizationObjective(si)
+    obj.setCostThreshold(ob.Cost(cost))
+    return obj
 
 def get_path(start, goal, env_num, dist_mu, dist_sigma):
     '''
