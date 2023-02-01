@@ -122,6 +122,8 @@ def main(args):
     num_keys = 2048
     quantizer_model = VectorQuantizer(n_e=num_keys, e_dim=8, latent_dim=d_model)
     checkpoint = torch.load(osp.join(dictionary_model_folder, 'best_model.pkl'))
+    # NOTE: Quantizer model is NOT loaded to GPU because model is used ony to get
+    # embedding and transformation vector.
     quantizer_model.load_state_dict(checkpoint['quantizer_state'])
     
     # Define Cross attention model
@@ -216,20 +218,34 @@ def main(args):
         val_data_loader = get_torch_dataloader(val_dataset, batch_size, num_workers=10)
 
     if args.robot == '6D':
-        train_dataset = QuantManipulationDataLoader(
-            quantizer_model, 
-            list(range(1000)),
-            '/root/data/pandav3/train/',
-            '/root/data/general_mpt/model1/quant_key/pandav3/train/'
-        )
+        if args.shelf:
+            train_dataset = QuantManipulationDataLoader(
+                quantizer_model, 
+                list(range(1000)),
+                '/root/data/panda_shelf/train',
+                osp.join(dictionary_model_folder, 'quant_key/panda_shelf/train/')            
+            )
+            val_dataset = QuantManipulationDataLoader(
+                quantizer_model,
+                list(range(2000, 2500)),
+                '/root/data/panda_shelf/val',
+                osp.join(dictionary_model_folder, 'quant_key/panda_shelf/val')
+            )
+        else:
+            train_dataset = QuantManipulationDataLoader(
+                quantizer_model, 
+                list(range(1000)),
+                '/root/data/pandav3/train/',
+                osp.join(dictionary_model_folder, 'quant_key/pandav3/train/')
+            )
+            val_dataset = QuantManipulationDataLoader(
+                quantizer_model,
+                list(range(2000, 2500)),
+                '/root/data/pandav3/val',
+                osp.join(dictionary_model_folder, 'quant_key/pandav3/val')
+            )
+        
         train_data_loader = DataLoader(train_dataset, num_workers=15, batch_size=batch_size, collate_fn=get_quant_manipulation_sequence)
-
-        val_dataset = QuantManipulationDataLoader(
-            quantizer_model,
-            list(range(2000, 2500)),
-            '/root/data/pandav3/val',
-            '/root/data/general_mpt/model1/quant_key/pandav3/val'
-        )
         val_data_loader = DataLoader(val_dataset, num_workers=10, batch_size=batch_size, collate_fn=get_quant_manipulation_sequence)
     
     writer = SummaryWriter(log_dir=train_model_folder)
@@ -284,6 +300,7 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', help="Number of trajectories to load in each batch", type=int)
     parser.add_argument('--cont', help="Continue training the model", action='store_true')
     parser.add_argument('--robot', help="Choose the robot model to train", choices=['2D', '6D'])
+    parser.add_argument('--shelf', help="If true, train for shelf environment", action='store_true')
 
     args = parser.parse_args()
 
