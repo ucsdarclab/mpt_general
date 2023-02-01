@@ -100,18 +100,19 @@ def getPathLengthObjective(cost, si):
     obj.setCostThreshold(ob.Cost(cost))
     return obj
 
-def get_path(start, goal, env_num, dist_mu, dist_sigma):
+def get_path(start, goal, env_num, dist_mu=None, dist_sigma=None, cost=None, planner_type='rrtstar'):
     '''
     Plan a path given the start, goal and patch_map.
     :param start:
     :param goal:
-    :param patch_map:
-    :param plannerType: The planner type to use
-    :param cost: The cost of the path
-    :param exp: If exploration is enabled
-    returns bool: Returns True if a path was planned successfully.
+    :param env_num:
+    :param dist_mu:
+    :param dist_sigma:
+    :param cost:
+    :param planner_type:
+    returns (list, float, int, bool): Returns True if a path was planned successfully.
     '''
-    # Planning parametersf
+    # Planning parameters
     space = ob.RealVectorStateSpace(7)
     bounds = ob.RealVectorBounds(7)
     # Set joint limits
@@ -125,7 +126,14 @@ def get_path(start, goal, env_num, dist_mu, dist_sigma):
     space.setStateSamplerAllocator(ob.StateSamplerAllocator(state_sampler))
 
     si = ob.SpaceInformation(space)
-    validity_checker_obj = set_env(space, 6, 6, seed=env_num)
+    p = get_pybullet_server('direct')
+    # Env - random objects
+    validity_checker_obj = set_env(p, space, 6, 6, seed=env_num)
+    # # Env - Shelf
+    # set_simulation_env(p)
+    # pandaID, jointsID, _ = set_robot(p)
+    # all_obstacles = place_shelf(p, seed=env_num) 
+    # validity_checker_obj = ValidityCheckerDistance(si, all_obstacles, pandaID, jointsID)
     si.setStateValidityChecker(validity_checker_obj)
 
     start_state = get_ompl_state(space, start)
@@ -137,18 +145,27 @@ def get_path(start, goal, env_num, dist_mu, dist_sigma):
     pdef = ob.ProblemDefinition(si)
     pdef.setStartAndGoalStates(start_state, goal_state)
 
-    planner = og.RRT(si)
+    # Set up objective function
+    obj = getPathLengthObjective(cost, si)
+    pdef.setOptimizationObjective(obj)
 
-    # if plannerType=='rrtstar':
-    #     planner = og.RRTstar(si)
+    if planner_type=='rrtstar':
+        planner = og.RRTstar(si)
     # elif plannerType=='informedrrtstar':
     #     planner = og.InformedRRTstar(si)
     # elif plannerType=='bitstar':
     #     planner = og.BITstar(si)
     #     planner.setSamplesPerBatch(100)
-    # else:
+    elif planner_type=='rrtconnect':
+        planner = og.RRTConnect(si)
+    else:
+        print("None of the planners found, using RRT")
+        planner = og.RRT(si)
+        planner_type = 'rrt'
     #     raise TypeError(f"Planner Type {plannerType} not found")
     
+    planner.setRange(13)
+    # planner.setRange(0.1)
     # Set the problem instance the planner has to solve
 
     planner.setProblemDefinition(pdef)
@@ -156,7 +173,7 @@ def get_path(start, goal, env_num, dist_mu, dist_sigma):
 
     # Attempt to solve the planning problem in the given time
     start_time = time.time()
-    solved = planner.solve(2.0)
+    solved = planner.solve(30.0)
     plan_time = time.time()-start_time
     plannerData = ob.PlannerData(si)
     planner.getPlannerData(plannerData)
@@ -164,7 +181,13 @@ def get_path(start, goal, env_num, dist_mu, dist_sigma):
 
     if pdef.hasExactSolution():
         success = True
-
+        # Simplify solution
+        path_simplifier = og.PathSimplifier(si)
+        try:
+            path_simplifier.simplify(pdef.getSolutionPath(), 0.0)
+        except TypeError:
+            print("Path not able to simplify for unknown reason!")
+            pass
         print("Found Solution")
         # TODO: Get final planner path. 
         path = [
@@ -172,7 +195,7 @@ def get_path(start, goal, env_num, dist_mu, dist_sigma):
             for i in range(pdef.getSolutionPath().getStateCount())
             ]
     else:
-        path = [[start[0], start[1]], [goal[0], goal[1]]]
+        path = [start, goal]
 
     return path, plan_time, numVertices, success
 
