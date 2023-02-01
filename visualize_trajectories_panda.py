@@ -95,8 +95,8 @@ if __name__ == "__main__":
     # )
     if success:
         panda, joints, obstacles = set_visual_env(p, 6, 6, seed=env_num)
-        # panda_start_vis = set_robot_vis(p, path[0], [0, 1, 0, 0.4])
-        # panda_goal_vis = set_robot_vis(p, path[-1], [1, 0, 0, 0.4])
+        panda_start_vis = set_robot_vis(p, path[0], [0, 1, 0, 0.4])
+        panda_goal_vis = set_robot_vis(p, path[-1], [1, 0, 0, 0.4])
         alpha = np.linspace(0, 1, step_size)[:, None]
         time.sleep(2)
         for i, _ in enumerate(path[:-1]):
