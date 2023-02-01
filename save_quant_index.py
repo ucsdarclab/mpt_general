@@ -11,6 +11,7 @@ import pickle
 import os
 
 from os import path as osp
+from tqdm import tqdm
 
 import argparse
 
@@ -79,16 +80,15 @@ if __name__ == "__main__":
     data_dir = args.data_dir
     save_dir = args.save_dir
 
-    for env_num in range(args.start_env, args.start_env+args.samples):
+    for env_num in tqdm(range(args.start_env, args.start_env+args.samples)):
         # Check if folder exists, if not create one.
-        env_dir = osp.join(data_dir, args.env_type, f'env{env_num:06d}')
-        save_env_dir = osp.join(save_dir, args.env_type, f'env{env_num:06d}')
+        env_dir = osp.join(data_dir, args.env_type, f'env_{env_num:06d}')
+        save_env_dir = osp.join(save_dir, args.env_type, f'env_{env_num:06d}')
         if not osp.isdir(save_env_dir):
             os.mkdir(save_env_dir)
 
         path_list = [p for p in os.listdir(env_dir) if p[-2:] == '.p']
         for path_file in path_list:
-            print("")
             with open(osp.join(env_dir, path_file), 'rb') as f:
                 data = pickle.load(f)
             
