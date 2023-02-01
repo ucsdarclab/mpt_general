@@ -106,13 +106,13 @@ class QuantManipulationDataLoader(Dataset):
     def __len__(self):
         ''' Return the length of the dataset.
         '''
-        return len(self.index_dict)
+        return len(self.index_dict)*2
 
     def __getitem__(self, index):
         ''' Return the PC of the env and quant data.
         :param index: The index of the data.
         '''
-        env_num, path_num = self.index_dict[index]
+        env_num, path_num = self.index_dict[index//2]
 
         # Load the pcd data.
         data_folder = osp.join(self.map_data_folder, f'env_{env_num:06d}')
@@ -124,12 +124,18 @@ class QuantManipulationDataLoader(Dataset):
         with open(osp.join(data_folder, f'path_{path_num}.p'), 'rb') as f:
             data_path = pickle.load(f)
             joint_path = data_path['jointPath']
-            # Normalize the trajectory.
-            start_n_goal = ((joint_path-q_min)/(q_max-q_min))[[0, -1], :6]
+            # flip array if index is odd.
+            if index%2==1:
+                joint_path = joint_path[::-1]
+        # Normalize the trajectory.
+        start_n_goal = ((joint_path-q_min)/(q_max-q_min))[[0, -1], :6]
 
         # Load the quant-data
         with open(osp.join(self.quant_data_folder, f'env_{env_num:06d}', f'path_{path_num}.p'), 'rb') as f:
             quant_data = pickle.load(f)
+            # Flip array if index is odd.
+            if index%2==1:
+                quant_data['keys'] = quant_data['keys'][::-1].copy()
 
         with torch.no_grad():
             quant_vector = self.quantizer_model.embedding(
