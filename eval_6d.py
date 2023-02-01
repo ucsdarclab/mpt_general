@@ -200,13 +200,14 @@ def get_path(start, goal, env_num, dist_mu=None, dist_sigma=None, cost=None, pla
     return path, plan_time, numVertices, success
 
 
-def get_beam_search_path(max_length, K, context_output, ar_model, quantizer_model):
+def get_beam_search_path(max_length, K, context_output, ar_model, quantizer_model, end_index):
     ''' A beam search function, that stops when any of the paths hits termination.
     :param max_length: Max length to search.
     :param K: Number of paths to keep.
     :param context_output: the tensor ecoding environment information.
     :param ar_model: nn.Model type for the Auto-Regressor.
     :param quantizer_model: For extracting the feature vector.
+    :param end_index: Index used to mark end of sequence
     '''
     
     # Create place holder for input sequences.`
@@ -223,7 +224,7 @@ def get_beam_search_path(max_length, K, context_output, ar_model, quantizer_mode
     ar_output = ar_model(ar_model_input_i, mask)
     intial_cost = F.log_softmax(ar_output[:, 2, :], dim=-1)
     # Do not terminate on the final dictionary
-    intial_cost[:, 1025] = -1e9
+    intial_cost[:, end_index] = -1e9
     path_cost, start_index = intial_cost.topk(k=K, dim=-1)
     start_index = start_index[0]
     path_cost = path_cost[0]
@@ -254,11 +255,11 @@ def get_beam_search_path(max_length, K, context_output, ar_model, quantizer_mode
         path_cost = nxt_cost
 
         # Break at the first sign of termination
-        if (new_sequence[:, 1] == 1025).any():
+        if (new_sequence[:, 1] == end_index).any():
             break
 
         # Select index
-        select_index = new_sequence[:, 1] !=1025
+        select_index = new_sequence[:, 1] != end_index
 
         # Update the input embedding. 
         input_seq[select_index, :i+1, :] = input_seq[new_sequence[select_index, 0], :i+1, :]
