@@ -26,12 +26,15 @@ except ImportError:
     raise "Run code from a container with OMPL installed"
 
 from modules.quantizers import VectorQuantizer
-from modules.decoder import DecoderPreNorm
+from modules.decoder import DecoderPreNorm, DecoderPreNormGeneral
 from modules.encoder import EncoderPreNorm
 
 from modules.autoregressive import AutoRegressiveModel, EnvContextCrossAttModel
 
-from panda_utils import set_env, q_max, q_min
+from panda_utils import get_pybullet_server, set_env, q_max, q_min, set_robot, set_simulation_env
+from panda_utils import ValidityCheckerDistance
+from panda_shelf_env import place_shelf
+from ompl_utils import get_ompl_state, get_numpy_state
 
 res = 0.05
 device = torch.device('cuda') if torch.cuda.is_available() else 'cpu'
@@ -331,6 +334,7 @@ def main(args):
     pathTime = []
     pathTimeOverhead = []
     pathVertices = []
+    pathPlanned = []
     predict_seq_time = []
     for env_num in range(start, start+args.samples):
         print(env_num)
@@ -344,6 +348,7 @@ def main(args):
             path_file = osp.join(val_data_folder, f'env_{env_num:06d}/path_{path_num}.p')
             data = pickle.load(open(path_file, 'rb'))
             path = (data['jointPath']-q_min)/(q_max-q_min)
+            path_obj = np.linalg.norm(np.diff(data['jointPath'], axis=0), axis=1).sum()
             if data['success']:
                 # Get the context.
                 start_time = time.time()
@@ -351,14 +356,26 @@ def main(args):
                 env_input = tg_data.Batch.from_data_list([map_data])
                 context_output = context_env_encoder(env_input, start_n_goal[None, :].to(device))
                 # Find the sequence of dict values using beam search
-                quant_keys, _, input_seq = get_beam_search_path(51, 3, context_output, ar_model, quantizer_model)
-                reached_goal = torch.stack(torch.where(quant_keys==1025), dim=1)
+                end_index = num_keys+1
+                quant_keys, _, input_seq = get_beam_search_path(51, 3, context_output, ar_model, quantizer_model, end_index)
+                # quant_keys, _, input_seq = get_beam_search_path(51, 8, context_output, ar_model, quantizer_model, end_index)
+                # # -------------------------------- Testing training data ------------------------------
+                # # Load quant keys from data.
+                # with open(osp.join(args.dict_model_folder, 'quant_key', 'pandav3', 'val', f'env_{env_num:06d}', f'path_{path_num}.p'), 'rb') as f:
+                #     quant_data = pickle.load(f)
+                #     input_seq = quantizer_model.output_linear_map(quantizer_model.embedding(torch.tensor(quant_data['keys'], device=device)[None, :]))
+                #     quant_keys = torch.cat((torch.tensor(quant_data['keys']), torch.tensor([goal_index])))[None, :]
+                # # --------------------------------- x ------------- x ---------------------------------
+                reached_goal = torch.stack(torch.where(quant_keys==goal_index), dim=1)
                 s = False
                 # if reached_goal.shape[1] > 0:
                 if len(reached_goal) > 0:
                     # Get the distribution.
                     # Ignore the zero index, since it is encoding representation of start vector.
-                    output_dist_mu, output_dist_sigma = decoder_model(input_seq[reached_goal[0, 0], 1:reached_goal[0, 1]+1])
+                    output_dist_mu, output_dist_sigma = decoder_model(input_seq[reached_goal[0, 0], 1:reached_goal[0, 1]+1][None, :])
+                    # # -------------------------------- Testing training data ------------------------------
+                    # output_dist_mu, output_dist_sigma = decoder_model(input_seq)
+                    # # --------------------------------- x ------------- x ---------------------------------
                     dist_mu = output_dist_mu.detach().cpu()
                     dist_sigma = output_dist_sigma.detach().cpu()
                     # If only a single point is predicted, then reshape the vector to a 2D tensor.
@@ -366,26 +383,43 @@ def main(args):
                         dist_mu = dist_mu[None, :]
                         dist_sigma = dist_sigma[None, :]
                     # NOTE: set the 7th joint to zero degrees.
-                    search_dist_mu = torch.zeros((reached_goal[0, 1], 7))
-                    search_dist_mu[:, :6] = output_dist_mu
-                    search_dist_sigma = torch.ones((reached_goal[0, 1], 7))
-                    search_dist_sigma[:, :6] = output_dist_sigma
+                    # # ========================== No added goal =================================
+                    # search_dist_mu = torch.zeros((reached_goal[0, 1], 7))
+                    # search_dist_mu[:, :6] = output_dist_mu
+                    # # search_dist_sigma = torch.ones((reached_goal[0, 1], 7))
+                    # # search_dist_sigma[:, :6] = output_dist_sigma
+                    # search_dist_sigma = torch.diag_embed(torch.ones((reached_goal[0, 1], 7)))
+                    # search_dist_sigma[:, :6, :6] = torch.tensor(output_dist_sigma)
+                    # # ==========================================================================
+                    # ========================== append search with goal  ======================
+                    search_dist_mu = torch.zeros((reached_goal[0, 1]+1, 7))
+                    search_dist_mu[:reached_goal[0, 1], :6] = output_dist_mu
+                    search_dist_mu[reached_goal[0, 1], :] = torch.tensor(data['jointPath'][-1])
+                    search_dist_sigma = torch.diag_embed(torch.ones((reached_goal[0, 1]+1, 7)))
+                    search_dist_sigma[:reached_goal[0, 1], :6, :6] = torch.tensor(output_dist_sigma)
+                    search_dist_sigma[reached_goal[0, 1], :, :] = search_dist_sigma[reached_goal[0, 1], :, :]*0.1
+                    # ==========================================================================
                     patch_time = time.time() - start_time
-                    _, t, v, s = get_path(data['jointPath'][0], data['jointPath'][-1], env_num, search_dist_mu, search_dist_sigma)
+                    planned_path, t, v, s = get_path(data['jointPath'][0], data['jointPath'][-1], env_num, search_dist_mu, search_dist_sigma, cost=path_obj, planner_type=args.planner_type)
+                    # planned_path, t, v, s = get_path(data['jointPath'][0], data['jointPath'][-1], env_num, cost=path_obj, planner_type=args.planner_type)
                     pathSuccess.append(s)
                     pathTime.append(t)
                     pathVertices.append(v)
                     pathTimeOverhead.append(t)
+                    pathPlanned.append(np.array(planned_path))
                     predict_seq_time.append(patch_time)
                 else:
                     pathSuccess.append(False)
                     pathTime.append(0)
                     pathVertices.append(0)
                     pathTimeOverhead.append(0)
+                    pathPlanned.append([[]])
                     predict_seq_time.append(0)
     
-    pathData = {'Time':pathTime, 'Success':pathSuccess, 'Vertices':pathVertices, 'PlanTime':pathTimeOverhead, 'PredictTime': predict_seq_time}
-    fileName = osp.join(ar_model_folder, f'eval_val_plan_{start:06d}.p')
+    pathData = {'Time':pathTime, 'Success':pathSuccess, 'Vertices':pathVertices, 'PlanTime':pathTimeOverhead, 'PredictTime': predict_seq_time, 'Path': pathPlanned}
+    fileName = osp.join(ar_model_folder, f'eval_val_plan_{args.planner_type}_simp_goal_shelf_{start:06d}.p')
+    # fileName = osp.join(ar_model_folder, f'eval_val_plan_test_{args.planner_type}_{start:06d}.p')
+    # fileName = f'/root/data/general_mpt/{args.planner_type}_shelf_0_{start:06d}.p'
     pickle.dump(pathData, open(fileName, 'wb'))
 
 
@@ -397,6 +431,7 @@ if __name__ == "__main__":
     parser.add_argument('--start', help="Env number to start", type=int)
     parser.add_argument('--samples', help="Number of samples to collect", type=int)
     parser.add_argument('--num_paths', help="Number of paths for each environment", type=int)
+    parser.add_argument('--planner_type', help="Type of planner to use", choices=['rrtstar', 'rrt', 'rrtconnect'])
 
     args = parser.parse_args()
     main(args)
