@@ -22,28 +22,33 @@ from modules.optim import ScheduledOptim
 from data_loader import get_quant_padded_sequence, QuantPathMixedDataLoader
 from data_loader import QuantManipulationDataLoader, get_quant_manipulation_sequence
 
-def calculate_loss(context_output, ar_model, batch_data, batch_size, device):
+def calculate_loss(context_output, ar_model, batch_data, seq_batch_size, device):
     ''' Calculates loss for each trajectory by training the auto-regressive model to maximize
     the likelihood for each trajectory.
-
+    :param context_output: output from cross-attention model.
+    :param ar_model: autoregressive model
+    :param batch_data: dictionary with a single batch data.
+    :param seq_batch_size: maximum length of the sequences used to train AR model.
+    :param device: 'cpu' or 'cuda'
+    :returns torch.tensor: the avg loss for given trajectories.mas
     '''
     loss = 0
     total_num_trajectories  = batch_data['target_seq_id'].shape[0]
     for i in range(total_num_trajectories):
-        offset = max(int((batch_data['length'][i])/batch_size), 1)
-        total_length = min(batch_size*offset, int(batch_data['length'][i])-1)
+        offset = max(int((batch_data['length'][i])/seq_batch_size), 1)
+        total_length = min(seq_batch_size*offset, int(batch_data['length'][i]))
         label = batch_data['target_seq_id'][i, :total_length:offset]
-        batch_size_i = label.shape[0]
+        seq_batch_size_i = label.shape[0]
         
         ar_model_input_i = torch.cat([context_output[i, :, :], batch_data['input_seq'][i, :total_length, :].to(device)])
         mask  = torch.tril(torch.ones(total_length, total_length+2), diagonal=2)
         mask  = mask[::offset, :].to(device)
 
         target_value_index = (mask.sum(dim=1)-1).to(dtype=torch.int64)
-        tmp_output = ar_model(ar_model_input_i.repeat((batch_size_i, 1, 1)), mask)
+        tmp_output = ar_model(ar_model_input_i.repeat((seq_batch_size_i, 1, 1)), mask)
         tmp_prob_output = -1*F.log_softmax(tmp_output, dim=-1)
         
-        loss +=tmp_prob_output[torch.arange(batch_size_i, device=device), target_value_index, label].sum()
+        loss +=tmp_prob_output[torch.arange(seq_batch_size_i, device=device), target_value_index, label].sum()
     return loss/total_num_trajectories
 
 
