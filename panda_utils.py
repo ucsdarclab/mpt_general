@@ -35,6 +35,29 @@ def set_robot(client_obj):
     finger = [j[0] for j in jointInfo if j[2]==pyb.JOINT_PRISMATIC]
     return panda, joints, finger
 
+# Spawn robot for visualization purposes only.
+def set_robot_vis(client_obj, pose, rgbaColor):
+    '''
+    Spawn a new robot at the proposed pose, and set its transparency to the set value.
+    :param client_obj: A pybullet_utils.BulletClient object.
+    :param pose: The pose of the robot.
+    :param rgbaColor: Color of the robot.
+    '''
+    # Spawn the robot.
+    pandaVis = client_obj.loadURDF("franka_panda/panda.urdf", np.array([0, 0, 0]), flags=pyb.URDF_USE_SELF_COLLISION)
+    # Get the joint info
+    numLinkJoints = pyb.getNumJoints(pandaVis)
+    jointInfo = [pyb.getJointInfo(pandaVis, i) for i in range(numLinkJoints)]
+    # Joint nums
+    jointsVis = [j[0] for j in jointInfo if j[2]==pyb.JOINT_REVOLUTE]
+    # Set the robot to a particular pose.
+    set_position(pandaVis, jointsVis, pose)
+    # Change the color of the robot.
+    for j in range(numLinkJoints):
+        client_obj.changeVisualShape(pandaVis, j, rgbaColor=rgbaColor)
+    return pandaVis
+
+    
 def set_simulation_env(client_obj):
     '''
     Set environment for the given client object.
