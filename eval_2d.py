@@ -89,8 +89,18 @@ def get_ompl_state(space, state):
     ompl_state[1] = state[1]
     return ompl_state
 
+def getPathLengthObjective(cost, si):
+    '''
+    Return the threshold objective for early termination
+    :param cost: The cost of the original RRT* path
+    :param si: An object of class ob.SpaceInformation
+    :returns : An object of class ob.PathLengthOptimizationObjective
+    '''
+    obj = ob.PathLengthOptimizationObjective(si)
+    obj.setCostThreshold(ob.Cost(cost))
+    return obj
 
-def get_path(start, goal, input_map, dist_mu, dist_sigma):
+def get_path(start, goal, input_map, dist_mu, dist_sigma, cost=None, planner_type='rrtstar'):
     '''
     Plan a path given the start, goal and patch_map.
     :param start:
@@ -126,17 +136,22 @@ def get_path(start, goal, input_map, dist_mu, dist_sigma):
     pdef = ob.ProblemDefinition(si)
     pdef.setStartAndGoalStates(start_state, goal_state)
 
-    planner = og.RRT(si)
+    # Set up objective function
+    obj = getPathLengthObjective(cost, si)
+    pdef.setOptimizationObjective(obj)
 
-    # if plannerType=='rrtstar':
-    #     planner = og.RRTstar(si)
+    if planner_type=='rrtstar':
+        planner = og.RRTstar(si)
     # elif plannerType=='informedrrtstar':
     #     planner = og.InformedRRTstar(si)
     # elif plannerType=='bitstar':
     #     planner = og.BITstar(si)
     #     planner.setSamplesPerBatch(100)
-    # else:
-    #     raise TypeError(f"Planner Type {plannerType} not found")
+    else:
+        print("Using RRT as planner")
+        planner_type = 'rrt'
+        planner = og.RRT(si)
+        # raise TypeError(f"Planner Type {plannerType} not found")
     
     # Set the problem instance the planner has to solve
 
@@ -299,6 +314,7 @@ def main(args):
             path_file = osp.join(val_data_folder, f'env{env_num:06d}/path_{path_num}.p')
             data = pickle.load(open(path_file, 'rb'))
             path = data['path']
+            path_obj = np.linalg.norm(np.diff(data['path'], axis=0), axis=1).sum()
             if data['success']:
                 # Get the context.
                 start_time = time.time()
@@ -320,7 +336,7 @@ def main(args):
                         dist_mu = dist_mu[None, :]
                         dist_sigma = dist_sigma[None, :]
                     patch_time = time.time() - start_time
-                    _, t, v, s = get_path(path[0], path[-1], env_map, dist_mu, dist_sigma)
+                    _, t, v, s = get_path(path[0], path[-1], env_map, dist_mu, dist_sigma, cost=path_obj, planner_type=args.planner_type)
                     pathSuccess.append(s)
                     pathTime.append(t)
                     pathVertices.append(v)
@@ -334,7 +350,7 @@ def main(args):
                     predict_seq_time.append(0)
     
     pathData = {'Time':pathTime, 'Success':pathSuccess, 'Vertices':pathVertices, 'PlanTime':pathTimeOverhead, 'PredictTime': predict_seq_time}
-    fileName = osp.join(ar_model_folder, f'eval_val_plan_{args.map_type}_{start:06d}.p')
+    fileName = osp.join(ar_model_folder, f'eval_val_plan_{args.planner_type}_{args.map_type}_{start:06d}.p')
     pickle.dump(pathData, open(fileName, 'wb'))
 
 
@@ -347,6 +363,7 @@ if __name__ == "__main__":
     parser.add_argument('--samples', help="Number of samples to collect", type=int)
     parser.add_argument('--num_paths', help="Number of paths for each environment", type=int)
     parser.add_argument('--map_type', help="Type of map", choices=['forest', 'maze'])
+    parser.add_argument('--planner_type', help="Type of planner to use", choices=['rrtstar', 'rrt'])
 
     args = parser.parse_args()
     main(args)
