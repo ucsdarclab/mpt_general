@@ -50,12 +50,14 @@ class StateSamplerRegion(ob.StateSampler):
         self.name_ ='region'
         self.q_min = qMin
         self.q_max = qMax
-        self.seq_num = dist_mu.shape[0]
         if dist_mu is None:
             self.X = None
             self.U = stats.uniform(np.zeros_like(qMin), np.ones_like(qMax))
         else:
-            self.X = MultivariateNormal(dist_mu,torch.diag_embed(dist_sigma))
+            # self.X = MultivariateNormal(dist_mu,torch.diag_embed(dist_sigma))
+            self.seq_num = dist_mu.shape[0]
+            self.X = MultivariateNormal(dist_mu, dist_sigma)
+
                        
     def get_random_samples(self):
         '''Generates a random sample from the list of points
@@ -63,13 +65,15 @@ class StateSamplerRegion(ob.StateSampler):
         index = 0
         random_samples = np.random.permutation(self.X.sample()*(self.q_max-q_min)+q_min)
         random_samples[:, 6] = 0.0
-        
+        # random_samples[:, 6] = 1.9891
+
         while True:
             yield random_samples[index, :]
             index += 1
             if index==self.seq_num:
                 random_samples = np.random.permutation(self.X.sample()*(self.q_max-q_min)+q_min)
-                random_samples[:, 6] = 0.0                
+                random_samples[:, 6] = 0.0
+                # random_samples[:, 6] = 1.9891
                 index = 0
                 
     def sampleUniform(self, state):
@@ -77,7 +81,7 @@ class StateSamplerRegion(ob.StateSampler):
         :param state: ompl.base.Space object
         '''
         if self.X is None:
-            sample_pos = (self.q_max-self.q_min)*self.U.rvs()+self.q_min
+            sample_pos = ((self.q_max-self.q_min)*self.U.rvs()+self.q_min)[0]
         else:
             sample_pos = next(self.get_random_samples())
         for i, val in enumerate(sample_pos):
