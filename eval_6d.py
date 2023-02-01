@@ -273,7 +273,9 @@ def main(args):
     # ========================= Load trained model ===========================
     # Define the models
     d_model = 512
-    quantizer_model = VectorQuantizer(n_e=1024, e_dim=8, latent_dim=d_model)
+    num_keys = 2048
+    goal_index = num_keys + 1
+    quantizer_model = VectorQuantizer(n_e=num_keys, e_dim=8, latent_dim=d_model)
 
     # Load quantizer model.
     dictionary_model_folder = args.dict_model_folder
@@ -281,7 +283,12 @@ def main(args):
         dictionary_model_params = json.load(f)
 
     encoder_model = EncoderPreNorm(**dictionary_model_params)
-    decoder_model = DecoderPreNorm(
+    # decoder_model = DecoderPreNorm(
+    #     e_dim=dictionary_model_params['d_model'], 
+    #     h_dim=dictionary_model_params['d_inner'], 
+    #     c_space_dim=dictionary_model_params['c_space_dim']
+    # )
+    decoder_model = DecoderPreNormGeneral(
         e_dim=dictionary_model_params['d_model'], 
         h_dim=dictionary_model_params['d_inner'], 
         c_space_dim=dictionary_model_params['c_space_dim']
