@@ -183,7 +183,7 @@ def main(args):
 
     optimizer = ScheduledOptim(
         t_optim.Adam(list(context_env_encoder.parameters()) + list(ar_model.parameters()), betas=(0.9, 0.98), eps=1e-9),
-        lr_mul=0.2,
+        lr_mul=0.15,
         d_model=512,
         n_warmup_steps=2400
     )
