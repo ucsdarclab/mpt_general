@@ -171,7 +171,7 @@ def main(batch_size, log_dir, num_epochs, continue_training):
         json.dump(model_args, f, sort_keys=True, indent=4)
 
     encoder_model = EncoderPreNorm(**model_args)
-    quantizer_model = VectorQuantizer(n_e=1024, e_dim=8, latent_dim=model_args['d_model'])
+    quantizer_model = VectorQuantizer(n_e=2048, e_dim=8, latent_dim=model_args['d_model'])
     decoder_model = DecoderPreNorm(
         e_dim=model_args['d_model'], h_dim=model_args['d_inner'], c_space_dim=model_args['c_space_dim'])
 
