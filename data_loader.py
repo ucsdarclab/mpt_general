@@ -69,7 +69,7 @@ def get_quant_manipulation_sequence(batch):
     data['target_seq_id'] = pad_sequence([batch_i['target_seq_id']
                                           for batch_i in batch], batch_first=True)
     data['length'] = torch.tensor(
-        [batch_i['input_seq'].shape[0]+1 for batch_i in batch])
+        [batch_i['input_seq'].shape[0] for batch_i in batch])
     data['start_n_goal'] = torch.cat(
         [batch_i['start_n_goal'][None, :] for batch_i in batch])
     return data
@@ -143,16 +143,16 @@ class QuantManipulationDataLoader(Dataset):
             quant_proj_vector = self.quantizer_model.output_linear_map(
                 quant_vector)
 
-        # add start vector and goal vector:
+        # add start vector:
         input_seq = torch.cat(
-            [torch.ones(1, 512)*-1, quant_proj_vector, torch.ones(1, 512)], dim=0)
+            [torch.ones(1, 512)*-1, quant_proj_vector], dim=0)
         input_seq_keys = np.r_[self.start_index,
                                quant_data['keys'], self.goal_index]
 
         return {
             'map': tg_data.Data(pos=torch.as_tensor(depth_points, dtype=torch.float)),
             'start_n_goal': torch.as_tensor(start_n_goal, dtype=torch.float),
-            'input_seq': input_seq[:-1],
+            'input_seq': input_seq,
             'target_seq_id': torch.as_tensor(input_seq_keys[1:])
         }
 
@@ -242,7 +242,7 @@ def get_quant_padded_sequence(batch):
     data['target_seq_id'] = pad_sequence([batch_i['target_seq_id']
                                           for batch_i in batch], batch_first=True)
     data['length'] = torch.tensor(
-        [batch_i['input_seq'].shape[0]+1 for batch_i in batch])
+        [batch_i['input_seq'].shape[0] for batch_i in batch])
     data['start_n_goal'] = torch.cat(
         [batch_i['start_n_goal'][None, :] for batch_i in batch])
     return data
@@ -322,9 +322,9 @@ class QuantPathMixedDataLoader(Dataset):
             quant_proj_vector = self.quantizer_model.output_linear_map(
                 quant_vector)
 
-        # add start vector and goal vector:
+        # add start vector:
         input_seq = torch.cat(
-            [torch.ones(1, 512)*-1, quant_proj_vector, torch.ones(1, 512)], dim=0)
+            [torch.ones(1, 512)*-1, quant_proj_vector], dim=0)
         input_seq_keys = np.r_[self.start_index,
                                quant_data['keys'], self.goal_index]
         # Normalize the start and goal points
@@ -332,6 +332,6 @@ class QuantPathMixedDataLoader(Dataset):
         return {
             'map': torch.as_tensor(map_env[None, :], dtype=torch.float),
             'start_n_goal': torch.as_tensor(start_n_goal, dtype=torch.float),
-            'input_seq': input_seq[:-1],
+            'input_seq': input_seq,
             'target_seq_id': torch.as_tensor(input_seq_keys[1:])
         }
