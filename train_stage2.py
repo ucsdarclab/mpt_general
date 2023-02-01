@@ -114,7 +114,7 @@ def main(args):
 
     # Load the qunatizer model
     d_model=512
-    num_keys = 1024
+    num_keys = 2048
     quantizer_model = VectorQuantizer(n_e=num_keys, e_dim=8, latent_dim=d_model)
     checkpoint = torch.load(osp.join(dictionary_model_folder, 'best_model.pkl'))
     quantizer_model.load_state_dict(checkpoint['quantizer_state'])
@@ -146,7 +146,7 @@ def main(args):
         n_heads=3, 
         d_k=512,
         d_v=256, 
-        d_model=512, 
+        d_model=d_model, 
         d_inner=1024,
         dropout=0.1
         )
