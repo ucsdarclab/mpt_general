@@ -17,7 +17,7 @@ from os import path as osp
 from tqdm import tqdm
 
 from modules.quantizers import VQEmbeddingEMA, VectorQuantizer
-from modules.decoder import DecoderPreNorm
+from modules.decoder import DecoderPreNorm, DecoderPreNormGeneral
 from modules.encoder import EncoderPreNorm
 from modules.optim import ScheduledOptim
 
@@ -62,7 +62,8 @@ def calculate_reconstruction_loss_v2(input_traj, mu, sigma, mask, gamma):
     :param mask:
     :returns torch.float: 
     '''
-    dist = MultivariateNormal(mu, torch.diag_embed(sigma))
+    # dist = MultivariateNormal(mu, torch.diag_embed(sigma))
+    dist = MultivariateNormal(mu, sigma)
     neg_likelihood = -(dist.log_prob(input_traj)*mask).sum(dim=1).mean()
     neg_entropy = -(dist.entropy()*mask).sum(1).mean()
     return neg_likelihood + gamma*neg_entropy
@@ -171,10 +172,11 @@ def main(batch_size, log_dir, num_epochs, continue_training):
     with open(osp.join(log_dir, 'model_params.json'), 'w') as f:
         json.dump(model_args, f, sort_keys=True, indent=4)
 
+    num_keys = 2048
     encoder_model = EncoderPreNorm(**model_args)
     quantizer_model = VectorQuantizer(
-        n_e=1024, e_dim=8, latent_dim=model_args['d_model'])
-    decoder_model = DecoderPreNorm(
+        n_e=num_keys, e_dim=8, latent_dim=model_args['d_model'])
+    decoder_model = DecoderPreNormGeneral(
         e_dim=model_args['d_model'], h_dim=model_args['d_inner'], c_space_dim=model_args['c_space_dim'])
 
     device = 'cpu'
@@ -213,14 +215,14 @@ def main(batch_size, log_dir, num_epochs, continue_training):
     # Add the data loader.
     train_dataset = PathManipulationDataLoader(
         data_folder=osp.join(data_folder, 'train'),
-        env_list=list(range(1000))
+        env_list=list(range(2000))
     )
     # Define the dataloader.
     training_data = DataLoader(train_dataset, num_workers=15,
                                collate_fn=get_padded_sequence, batch_size=batch_size)
 
     eval_dataset = PathManipulationDataLoader(
-        data_folder=osp.join(data_folder, 'eval'),
+        data_folder=osp.join(data_folder, 'val'),
         env_list=list(range(2000, 2500))
     )
     # Define the dataloader.
