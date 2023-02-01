@@ -32,7 +32,7 @@ from modules.autoregressive import AutoRegressiveModel, EnvContextCrossAttModel
 from utils import ValidityChecker
 
 res = 0.05
-device = 'cpu' if torch.cuda.is_available() else torch.device('cuda')
+device = torch.device('cuda') if torch.cuda.is_available() else 'cpu'
 
 eps = 1e-4
 class StateSamplerRegion(ob.StateSampler):
@@ -177,7 +177,7 @@ def get_beam_search_path(max_length, K, context_output, ar_model, quantizer_mode
     # Create place holder for input sequences.`
     input_seq = torch.ones(K, max_length, 512, dtype=torch.float, device=device)*-1
     quant_keys = torch.ones(K, max_length)*-1
-    mask = torch.zeros(K, max_length+2)
+    mask = torch.zeros(K, max_length+2, device=device)
             
         
     ar_model_input_i = torch.cat([context_output.repeat((K ,1, 1)), input_seq], dim=1)
@@ -209,7 +209,7 @@ def get_beam_search_path(max_length, K, context_output, ar_model, quantizer_mode
         # Get the top set of possible sequences by flattening across batch sizes.
         nxt_cost, flatten_index = (path_cost[:, None]+seq_cost).flatten().topk(K)
         # Reshape back into tensor size to get the approriate batch index and word index.
-        new_sequence = torch.as_tensor(np.array(np.unravel_index(flatten_index.numpy(), seq_cost.shape)).T)
+        new_sequence = torch.as_tensor(np.array(np.unravel_index(flatten_index.cpu().numpy(), seq_cost.shape)).T)
 
         # Update previous keys given the current prediction.
         quant_keys[:, :i] = quant_keys[new_sequence[:, 0], :i]
@@ -227,7 +227,7 @@ def get_beam_search_path(max_length, K, context_output, ar_model, quantizer_mode
 
         # Update the input embedding. 
         input_seq[select_index, :i+1, :] = input_seq[new_sequence[select_index, 0], :i+1, :]
-        input_seq[select_index, i+1, :] = quantizer_model.output_linear_map(quantizer_model.embedding(new_sequence[select_index, 1]))
+        input_seq[select_index, i+1, :] = quantizer_model.output_linear_map(quantizer_model.embedding(new_sequence[select_index, 1].to(device)))
     return quant_keys, path_cost, input_seq
 
 def main(args):
@@ -257,6 +257,7 @@ def main(args):
     for model, state_dict in zip([encoder_model, quantizer_model, decoder_model], ['encoder_state', 'quantizer_state', 'decoder_state']):
         model.load_state_dict(checkpoint[state_dict])
         model.eval()
+        model.to(device)
 
     # Load the AR model.
     # NOTE: Save these values as dictionary in the future, and load as json.
@@ -280,6 +281,7 @@ def main(args):
     for model, state_dict in zip([context_env_encoder, ar_model], ['context_state', 'ar_model_state']):
         model.load_state_dict(checkpoint[state_dict])
         model.eval()
+        model.to(device)
 
     # ============================= Run planning experiment ============================
     val_data_folder = args.val_data_folder
@@ -300,11 +302,12 @@ def main(args):
             if data['success']:
                 # Get the context.
                 start_time = time.time()
-                start_n_goal = torch.as_tensor(path[[0, -1], :]/24, dtype=torch.float)
-                env_input = torch.as_tensor(env_map[None, :], dtype=torch.float)
-                context_output = context_env_encoder(env_input[None, :].to(device), start_n_goal[None, :].to(device))
-                # Find the sequence of dict values using beam search
-                quant_keys, _, input_seq = get_beam_search_path(51, 3, context_output, ar_model, quantizer_model)
+                start_n_goal = torch.as_tensor(path[[0, -1], :]/24, dtype=torch.float).to(device)
+                env_input = torch.as_tensor(env_map[None, :], dtype=torch.float).to(device)
+                with torch.no_grad():
+                    context_output = context_env_encoder(env_input[None, :], start_n_goal[None, :])
+                    # Find the sequence of dict values using beam search
+                    quant_keys, _, input_seq = get_beam_search_path(51, 3, context_output, ar_model, quantizer_model)
                 reached_goal = torch.stack(torch.where(quant_keys==1025), dim=1)
                 s = False
                 # if reached_goal.shape[1] > 0:
