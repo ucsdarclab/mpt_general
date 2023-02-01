@@ -38,6 +38,9 @@ if __name__ == "__main__":
     parser.add_argument(
         '--robot', help='type of robot', choices=['2D', '6D']
     )
+    parser.add_argument(
+        '--num_keys', help="Number of dictionary elements", type=int
+    )
     
     args = parser.parse_args()
 
@@ -62,7 +65,7 @@ if __name__ == "__main__":
 
     encoder_model = EncoderPreNorm(**model_args)
     quantizer_model = VectorQuantizer(
-        n_e=1024, e_dim=8, latent_dim=model_args['d_model'])
+        n_e=args.num_keys, e_dim=8, latent_dim=model_args['d_model'])
 
     checkpoint = torch.load(osp.join(args.model_dir, 'best_model.pkl'))
     
