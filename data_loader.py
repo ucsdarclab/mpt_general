@@ -19,6 +19,46 @@ import torch_geometric.data as tg_data
 
 from panda_utils import q_max, q_min
 
+
+class PathBiManipulationDataLoader(Dataset):
+    ''' Loads each path for the bi-manipulation data
+    '''
+
+    def __init__(self, data_folder, env_list):
+        '''
+        :param data_folder: location of where file exists. 
+        '''
+        self.data_folder = data_folder
+        self.index_dict = [(envNum, int(re.findall('[0-9]+', filei)[0]))
+                           for envNum in env_list
+                           for filei in os.listdir(osp.join(data_folder, f'env_{envNum:06d}'))
+                           if filei.endswith('.p')
+                           ]
+        self.q_bi_max = np.c_[q_max, q_max]
+        self.q_bi_min = np.c_[q_min, q_min]
+
+    def __len__(self):
+        ''' Returns the length of the dataset.
+        '''
+        return len(self.index_dict)
+
+    def __getitem__(self, index):
+        '''Gets the data item from a particular index.
+        :param index: Index from which to extract the data.
+        :returns: A dictionary with path.
+        '''
+        envNum, pathNum = self.index_dict[index]
+        envFolder = osp.join(self.data_folder, f'env_{envNum:06d}')
+
+        #  Load the path
+        with open(osp.join(envFolder, f'path_{pathNum}.p'), 'rb') as f:
+            data_path = pickle.load(f)
+            joint_path = data_path['path']
+        # Normalize the trajectory.
+        q = (joint_path-self.q_bi_min)/(self.q_bi_max-self.q_bi_min)
+        return {'path': torch.as_tensor(q)}
+
+
 class PathManipulationDataLoader(Dataset):
     ''' Loads each path for the maniuplation data.
     '''
