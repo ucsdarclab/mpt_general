@@ -21,7 +21,7 @@ from modules.decoder import DecoderPreNorm, DecoderPreNormGeneral
 from modules.encoder import EncoderPreNorm
 from modules.optim import ScheduledOptim
 
-from data_loader import PathManipulationDataLoader, get_padded_sequence
+from data_loader import PathManipulationDataLoader, get_padded_sequence, PathBiManipulationDataLoader
 
 from toolz.itertoolz import partition
 import argparse
@@ -151,13 +151,15 @@ def get_torch_dataloader(dataset, batch_size, num_workers):
                       batch_sampler=batch_sampler_data, collate_fn=get_padded_sequence)
 
 
-def main(batch_size, log_dir, num_epochs, continue_training):
+def main(args):
     ''' Train the model.
-    :param batch_size: batch size used for training.
-    :param log_dir: Directory to save all data related to training.
-    :param num_epochs: Number of epochs to train the model.
-    :param continue_training: if true, continue training.
+    :param args: Argument parser object
     '''
+    batch_size = args.batch_size
+    log_dir = args.log_dir
+    num_epochs = args.num_epochs
+    continue_training = args.continue_train
+
     model_args = dict(
         n_layers=3,
         n_heads=3,
@@ -167,12 +169,12 @@ def main(batch_size, log_dir, num_epochs, continue_training):
         d_inner=1024,
         n_position=1000,
         dropout=0.1,
-        c_space_dim=6
+        c_space_dim=args.c_space_dim
     )
     with open(osp.join(log_dir, 'model_params.json'), 'w') as f:
         json.dump(model_args, f, sort_keys=True, indent=4)
 
-    num_keys = 2048
+    num_keys = args.num_keys
     encoder_model = EncoderPreNorm(**model_args)
     quantizer_model = VectorQuantizer(
         n_e=num_keys, e_dim=8, latent_dim=model_args['d_model'])
@@ -210,28 +212,42 @@ def main(batch_size, log_dir, num_epochs, continue_training):
         else:
             print(f"Cannot find file : {checkpoint_file}")
 
-    data_folder = '/root/data/pandav3'
+    data_folder = args.data_dir
 
-    # Add the data loader.
-    train_dataset = PathManipulationDataLoader(
-        data_folder=osp.join(data_folder, 'train'),
-        env_list=list(range(2000))
-    )
+    if args.robot=='6D':
+        # Add the data loader.
+        train_dataset = PathManipulationDataLoader(
+            data_folder=osp.join(data_folder, 'train'),
+            env_list=list(range(2000))
+            )
+
+        eval_dataset = PathManipulationDataLoader(
+            data_folder=osp.join(data_folder, 'val'),
+            env_list=list(range(2000, 2500))
+            )
+    elif args.robot=='14D':
+        # Add the data loader.
+        train_dataset = PathBiManipulationDataLoader(
+            data_folder=osp.join(data_folder, 'train'),
+            env_list=list(range(1))
+        )
+
+        eval_dataset = PathBiManipulationDataLoader(
+            data_folder=osp.join(data_folder, 'val'),
+            env_list=list(range(1))
+        )
+
     # Define the dataloader.
     training_data = DataLoader(train_dataset, num_workers=15,
-                               collate_fn=get_padded_sequence, batch_size=batch_size)
+                            collate_fn=get_padded_sequence, batch_size=batch_size)
 
-    eval_dataset = PathManipulationDataLoader(
-        data_folder=osp.join(data_folder, 'val'),
-        env_list=list(range(2000, 2500))
-    )
     # Define the dataloader.
     evaluate_data = DataLoader(eval_dataset, num_workers=10,
-                               collate_fn=get_padded_sequence, batch_size=batch_size)
+                            collate_fn=get_padded_sequence, batch_size=batch_size)
 
     # Add the train code.
     writer = SummaryWriter(log_dir=log_dir)
-    best_eval_loss = 1e10
+    best_eval_loss = None
     for n in range(start_epoch, num_epochs):
         print(f"Epoch............: {n}")
         # Get loss of the model.
@@ -254,6 +270,8 @@ def main(batch_size, log_dir, num_epochs, continue_training):
                 'n_steps': optimizer.n_steps
             }
             torch.save(states, osp.join(log_dir, f'model_{n}.pkl'))
+        if best_eval_loss is None:
+            best_eval_loss = eval_all_losses[1]
 
         if eval_all_losses[1] < best_eval_loss:
             print(best_eval_loss)
@@ -287,6 +305,11 @@ if __name__ == "__main__":
         '--log_dir', help="Directory to save data related to training", default='')
     parser.add_argument('--continue_train',
                         help="If passed, continues model training", action='store_true')
+    parser.add_argument('--c_space_dim', help="Dimension of the state space", type=int)
+    parser.add_argument('--num_keys', help="Number of dictionary keys", type=int)
+    parser.add_argument('--data_dir', help="Directory where training data is stored")
+    parser.add_argument('--robot', help="Choose the robot model to train", choices=['2D', '6D', '14D'])
+
     args = parser.parse_args()
 
-    main(args.batch_size, args.log_dir, args.num_epochs, args.continue_train)
+    main(args)
