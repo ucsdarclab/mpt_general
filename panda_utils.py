@@ -13,6 +13,8 @@ import os
 from ompl import base as ob
 from ompl import geometric as og
 
+import warnings
+
 # Panda limits
 q_max = np.array([2.8973, 1.7628, 2.8973, -0.0698,
                  2.8973, 3.7525, 2.8973])[None, :]
@@ -21,11 +23,14 @@ q_min = np.array([-2.8973, -1.7628, -2.8973, -3.0718, -
 
 
 # Spawn robot
-def set_robot(client_obj):
+def set_robot(client_obj, base_pose = np.array([0]*3), base_orientation=np.array([0.0]*3)):
     ''' Spawn the robot in the environment.
     :param client_obj: a pybullet_utils.BulletClient object
+    :param base_pose: the base position of the panda arm.
+    :param base_orientation: the base orientation of the panda arm in (yaw, pitch, roll)
     '''
-    panda = client_obj.loadURDF("franka_panda/panda.urdf", np.array([0, 0, 0]), flags=pyb.URDF_USE_SELF_COLLISION)
+    base_ori_quat = pyb.getQuaternionFromEuler(base_orientation)
+    panda = client_obj.loadURDF("franka_panda/panda.urdf", basePosition=base_pose, baseOrientation=base_ori_quat, flags=pyb.URDF_USE_SELF_COLLISION)
     # Get the joint info
     numLinkJoints = pyb.getNumJoints(panda)
     jointInfo = [pyb.getJointInfo(panda, i) for i in range(numLinkJoints)]
@@ -154,6 +159,31 @@ def get_distance(obstacles, robotID):
         )
     return distance
 
+
+# Create offsets for checking link collision.
+selfContact = np.diag([
+    -0.1420203 , -0.11206833, -0.11204374, -0.12729175, -0.12736233,
+    -0.1114051 , -0.09016624, -0.05683277, -0.06448606, -0.02296515,
+    -0.02296515
+    ])
+adjContact = np.array([
+    -0.0009933453129464674, -0.03365764455472735, -0.0010162024664227207, 
+    -0.04104534748867784, -0.006549498247919756, -0.05069805702950261, 
+    -0.0012093463397529107, -0.02519203810879126, -0.009414129012614625,
+    -0.002214306228527925
+    ])
+link_offset = np.diag(selfContact)+np.diag(adjContact, k=1)+ np.diag(adjContact, k=-1)
+def check_self_collision(robotID):
+    ''' Checks if the robot meshes are touching each other.
+    :param robotID: the pybullet ID of the robot.
+    :returns bool: Returns True if the robot links are in collision
+    '''
+    collision_mat = np.array([link[8] for link in pyb.getClosestPoints(robotID, robotID, distance=2)]).reshape((11, 11))
+    collMat = collision_mat-link_offset
+    minDist = np.min(collMat)
+    return minDist<0 and not np.isclose(minDist, 0.0)
+
+
 class ValidityCheckerDistance(ob.StateValidityChecker):
     '''A class to check the validity of the state, by checking distance function
     '''
@@ -192,7 +222,7 @@ class ValidityCheckerDistance(ob.StateValidityChecker):
         '''
         # Set robot position
         set_position(self.robotID, self.joints, [state[i] for i in range(7)])
-        if not self.checkSelfCollision():
+        if not check_self_collision(self.robotID):
             return self.getDistance(state)>0
         return False
 
@@ -207,11 +237,13 @@ class ValidityCheckerDistance(ob.StateValidityChecker):
     def getCollisionMat(self):
         '''Get collision matrix between links
         '''
+        warnings.warn("Use the function, not the class objects")
         return np.array([link[8] for link in pyb.getClosestPoints(self.robotID, self.robotID, distance=2)]).reshape((11, 11))
 
     def checkSelfCollision(self):
         '''Returns True if links are in self-collision for the PANDA robot
         '''
+        warnings.warn("Use the function, not the class objects")
         collMat = self.getCollisionMat()-self.offset
         minDist = np.min(collMat)
         return minDist<0 and not np.isclose(minDist, 0.0)
