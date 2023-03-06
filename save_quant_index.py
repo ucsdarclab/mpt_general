@@ -37,7 +37,7 @@ if __name__ == "__main__":
         '--env_type', help='train or val dataset', choices=['train', 'val']
     )
     parser.add_argument(
-        '--robot', help='type of robot', choices=['2D', '6D']
+        '--robot', help='type of robot', choices=['2D', '6D', '14D']
     )
     parser.add_argument(
         '--num_keys', help="Number of dictionary elements", type=int
@@ -49,6 +49,8 @@ if __name__ == "__main__":
         c_space_dim=2
     if args.robot=='6D':
         c_space_dim=6
+    if args.robot=='14D':
+        c_space_dim=14
 
     model_args = dict(
         n_layers=3,
@@ -81,9 +83,12 @@ if __name__ == "__main__":
     save_dir = args.save_dir
 
     for env_num in tqdm(range(args.start_env, args.start_env+args.samples)):
-        # Check if folder exists, if not create one.
         env_dir = osp.join(data_dir, args.env_type, f'env_{env_num:06d}')
+        # Check if environment dir exists
+        if not osp.isdir(env_dir):
+            continue
         save_env_dir = osp.join(save_dir, args.env_type, f'env_{env_num:06d}')
+        # Check if folder exists, if not create one.
         if not osp.isdir(save_env_dir):
             os.mkdir(save_env_dir)
 
@@ -97,6 +102,10 @@ if __name__ == "__main__":
                     path_norm = data['path_interpolated']/24
                 if args.robot=='6D':
                     path_norm = ((data['jointPath']-q_min)/(q_max-q_min))[:, :6]
+                if args.robot=='14D':
+                    q_bi_max = np.c_[q_max, q_max]
+                    q_bi_min = np.c_[q_min, q_min]
+                    path_norm = (data['path_interpolated']-q_bi_min)/(q_bi_max-q_bi_min)
                 encoder_input = torch.as_tensor(path_norm, dtype=torch.float)[None, :].to(device)
                 encoder_output, = encoder_model(encoder_input)
                 _, (_, _, quant_keys) = quantizer_model(encoder_output, None)
