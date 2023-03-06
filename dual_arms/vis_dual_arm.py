@@ -15,7 +15,8 @@ import time
 import numpy as np
 
 import panda_utils as pdu
-import collect_data as dau
+import collect_data as cd
+import dual_arm_utils as dau
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -29,14 +30,27 @@ if __name__ == "__main__":
 
     env_num = args.env_num
     path_num = args.path_num
-    step_size = 50
-    robotid1, robotid2, all_obstacles = dau.set_env(p, args.env_num)
+    step_size = 20
+    robotid1, robotid2, all_obstacles = cd.set_env(p, args.env_num)
     if args.method == 'train':
         dataFolder = "/root/data/bi_panda/train"
         with open(osp.join(dataFolder, f'env_{env_num:06d}', f'path_{path_num}.p'), 'rb') as f:
             pathTraj = pickle.load(f)
         path = pathTraj['path']
+        success = True
+    elif args.method == 'predict':
+        dataFolder="/root/data/general_mpt_bi_panda/stage2/model1"
+        with open(osp.join(dataFolder, f'eval_val_plan_{args.planner}_{2001:06d}.p'), 'rb') as f:
+            eval_data = pickle.load(f)
+        index_num = env_num-2001
+        path = eval_data['Path'][index_num]
+        success = eval_data['Success'][index_num]
 
+    # Set Robot starting and goal position for robot 1
+    dau.set_dual_robot_vis(p, path[0], [1, 0 ,0, 0.4])
+    dau.set_dual_robot_vis(p, path[-1], [0, 1 ,0, 0.4])
+
+    time.sleep(3)
     alpha = np.linspace(0, 1, step_size)[:, None]
     for i, _ in enumerate(path[:-1]):
         tmp_path = (1-alpha)*path[i] + alpha*path[i+1]
