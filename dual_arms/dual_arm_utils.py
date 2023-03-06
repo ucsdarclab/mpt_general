@@ -45,6 +45,29 @@ def set_dual_robot(clientID):
     return (robot1_ids, robot2_ids)
 
 
+def set_dual_robot_vis(client_obj, pose, rgbaColor):
+    '''
+    Set up dual robots for visualizing purposes.
+    :param client_obj: a pybullet.client.BulletClient object.
+    :param pose: a 14D vector for positioning robot1 and 2.
+    :param rgbaColor: The color of both robots.
+    '''
+    # Spawn the robots.
+    robot1_vis_ids, robot2_vis_ids = set_dual_robot(client_obj)
+    # Get the joint info
+    numLinkJoints = pyb.getNumJoints(robot1_vis_ids[0])
+    # Change the color of the robot.
+    for j in range(numLinkJoints):
+        client_obj.changeVisualShape(robot1_vis_ids[0], j, rgbaColor=rgbaColor)
+        client_obj.changeVisualShape(robot2_vis_ids[0], j, rgbaColor=rgbaColor)
+    
+    #  Set the robot1 to a particular pose.
+    set_position(robot1_vis_ids[0], robot1_vis_ids[1], pose[:7])
+    set_position(robot2_vis_ids[0], robot2_vis_ids[1], pose[7:])
+
+    return robot1_vis_ids, robot2_vis_ids
+
+
 # Check collision with base
 def check_robot_base_collision(obstacle, robotID):
     '''
