@@ -255,13 +255,13 @@ def get_pybullet_server(connection_type):
     :returns bc.BulletClient:
     '''
     if connection_type=='direct':
-        connection_mode = pyb.DIRECT
+        p = bc.BulletClient(pyb.DIRECT)
     elif connection_type=='gui':
-        connection_mode = pyb.GUI
+        p = bc.BulletClient(pyb.GUI, options='--background_color_red=1.0 --background_color_green=1.0 --background_color_blue=1.0')
+        p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0, lightPosition = [0, 0, 0.1])
     else:
         raise TypeError
 
-    p = bc.BulletClient(connection_mode=connection_mode)
     pyb.setAdditionalSearchPath(pybullet_data.getDataPath())
     return p
 
