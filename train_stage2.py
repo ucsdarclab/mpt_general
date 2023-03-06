@@ -158,6 +158,20 @@ def main(args):
         dropout=0.1
         )
 
+    if args.robot == '14D':
+        env_params = dict(d_model=d_model)
+
+        context_params = dict(
+        d_context=14,
+        n_layers=3,
+        n_heads=3, 
+        d_k=512,
+        d_v=256, 
+        d_model=d_model, 
+        d_inner=1024,
+        dropout=0.1
+        )
+
     context_env_encoder = EnvContextCrossAttModel(env_params, context_params, robot=args.robot)
     # Save the parameters used to define AR model.
     with open(osp.join(train_model_folder, 'cross_attn.json'), 'w') as f:
@@ -247,9 +261,26 @@ def main(args):
         
         train_data_loader = DataLoader(train_dataset, num_workers=15, batch_size=batch_size, collate_fn=get_quant_manipulation_sequence)
         val_data_loader = DataLoader(val_dataset, num_workers=10, batch_size=batch_size, collate_fn=get_quant_manipulation_sequence)
-    
+    if args.robot == '14D':
+        train_dataset = QuantManipulationDataLoader(
+            quantizer_model,
+            list(range(1, 2000)),
+            '/root/data/bi_panda/train',
+            osp.join(dictionary_model_folder, 'quant_key/train'),
+            dual_arm=True
+        )
+        val_dataset = QuantManipulationDataLoader(
+            quantizer_model,
+            list(range(2001, 2500)),
+            '/root/data/bi_panda/val',
+            osp.join(dictionary_model_folder, 'quant_key/val'),
+            dual_arm=True
+        )
+        train_data_loader = DataLoader(train_dataset, num_workers=15, batch_size=batch_size, collate_fn=get_quant_manipulation_sequence)
+        val_data_loader = DataLoader(val_dataset, num_workers=10, batch_size=batch_size, collate_fn=get_quant_manipulation_sequence)
+
     writer = SummaryWriter(log_dir=train_model_folder)
-    best_eval_loss = 1e10
+    best_eval_loss = None
     start_epoch = 0
     if args.cont:
         checkpoint = torch.load(osp.join(train_model_folder, 'best_model.pkl'))
@@ -264,6 +295,8 @@ def main(args):
         print(f"Epoch: .......{n}")
         train_loss = train_epoch(context_env_encoder, ar_model, train_data_loader, 40, optimizer, device)
         eval_loss = eval_epoch(context_env_encoder, ar_model, val_data_loader, 40, device)
+        if best_eval_loss is None:
+            best_eval_loss = eval_loss
     
         # Periodically save trainiend model
         if (n+1) % 10 == 0:
@@ -299,7 +332,7 @@ if __name__ == "__main__":
     parser.add_argument('--log_dir', help="Directory to save data related to training")
     parser.add_argument('--batch_size', help="Number of trajectories to load in each batch", type=int)
     parser.add_argument('--cont', help="Continue training the model", action='store_true')
-    parser.add_argument('--robot', help="Choose the robot model to train", choices=['2D', '6D'])
+    parser.add_argument('--robot', help="Choose the robot model to train", choices=['2D', '6D', '14D'])
     parser.add_argument('--shelf', help="If true, train for shelf environment", action='store_true')
 
     args = parser.parse_args()
