@@ -451,6 +451,10 @@ def main(args):
             model.load_state_dict(checkpoint[state_dict])
             model.eval()
             model.to(device)
+    else:
+        # Load VQ-MPT planned paths:
+        with open(osp.join(args.ar_model_folder, f'eval_val_plan_rrt_{2001:06d}.p'), 'rb') as f:
+            vq_mpt_data = pickle.load(f)
 
     # ============================= Run planning experiment ============================
     val_data_folder = args.val_data_folder
@@ -474,6 +478,11 @@ def main(args):
             data = pickle.load(open(path_file, 'rb'))
             path = (data['path']-q_bi_min)/(q_bi_max-q_bi_min)
             path_obj = np.linalg.norm(np.diff(data['path'], axis=0), axis=1).sum()
+            if not use_model:
+                if vq_mpt_data['Success'][env_num-2001]:
+                    path_obj = np.linalg.norm(np.diff(vq_mpt_data['Path'][env_num-2001], axis=0), axis=1).sum()
+                    # Add 0.01 to prevent round off errors
+                    path_obj += 0.01
             if data['success']:
                 if use_model:
                     search_dist_mu, search_dist_sigma, patch_time = get_search_dist(path, data['path'], map_data, context_env_encoder, decoder_model, ar_model, quantizer_model, num_keys)
