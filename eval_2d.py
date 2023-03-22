@@ -256,58 +256,104 @@ def get_beam_search_path(max_length, K, context_output, ar_model, quantizer_mode
         input_seq[select_index, i+1, :] = quantizer_model.output_linear_map(quantizer_model.embedding(new_sequence[select_index, 1].to(device)))
     return quant_keys, path_cost, input_seq
 
+def get_search_dist(path, env_map, context_env_encoder, quantizer_model, ar_model, decoder_model):
+    '''
+    Return the search distribution of the model.
+    :param path: 
+    :param env_map:
+    :param context_env_encoder:
+    :param quantizer_model:
+    :param ar_model:
+    :param decoder_model:
+    :returns ()
+    '''
+    start_time = time.time()
+    normalized_path = path/24
+    start_n_goal = torch.as_tensor(normalized_path[[0, -1], :], dtype=torch.float).to(device)
+    env_input = torch.as_tensor(env_map[None, :], dtype=torch.float).to(device)
+    with torch.no_grad():
+        context_output = context_env_encoder(env_input[None, :], start_n_goal[None, :])
+        # Find the sequence of dict values using beam search
+        quant_keys, _, input_seq = get_beam_search_path(51, 3, context_output, ar_model, quantizer_model)
+    reached_goal = torch.stack(torch.where(quant_keys==1025), dim=1)
+    s = False
+    # if reached_goal.shape[1] > 0:
+    if len(reached_goal) > 0:
+        # Get the distribution.
+        output_dist_mu, output_dist_sigma = decoder_model(input_seq[reached_goal[0, 0], 1:reached_goal[0, 1]+1])
+        dist_mu = output_dist_mu.detach().cpu().squeeze()
+        dist_sigma = output_dist_sigma.detach().cpu().squeeze()
+        if len(dist_mu.shape) == 1:
+            dist_mu = dist_mu[None, :]
+            dist_sigma = dist_sigma[None, :]
+        # ========================== append search with goal  ======================
+        search_dist_mu = torch.zeros((reached_goal[0, 1]+1, 2))
+        search_dist_mu[:reached_goal[0, 1], :] = dist_mu
+        search_dist_mu[reached_goal[0, 1], :] = torch.tensor(normalized_path[-1])
+        search_dist_sigma = torch.ones((reached_goal[0, 1]+1, 2))
+        search_dist_sigma[:reached_goal[0, 1], :] = torch.tensor(dist_sigma)
+        search_dist_sigma[reached_goal[0, 1], :] = search_dist_sigma[reached_goal[0, 1], :]*0.01
+        # ==========================================================================         
+    else:
+        search_dist_mu, search_dist_sigma = None, None
+    patch_time = time.time() - start_time
+    return search_dist_mu, search_dist_sigma, patch_time
+
+
 def main(args):
     ''' Main running script.
     :parma args: An object of type argparse.ArgumentParser().parse_args()
     '''
-    # ========================= Load trained model ===========================
-    # Define the models
-    d_model = 512
-    quantizer_model = VectorQuantizer(n_e=1024, e_dim=8, latent_dim=d_model)
+    use_model = False if args.dict_model_folder is None else True
+    if use_model:
+        # ========================= Load trained model ===========================
+        # Define the models
+        d_model = 512
+        quantizer_model = VectorQuantizer(n_e=1024, e_dim=8, latent_dim=d_model)
 
-    # Load quantizer model.
-    dictionary_model_folder = args.dict_model_folder
-    with open(osp.join(dictionary_model_folder, 'model_params.json'), 'r') as f:
-        dictionary_model_params = json.load(f)
+        # Load quantizer model.
+        dictionary_model_folder = args.dict_model_folder
+        with open(osp.join(dictionary_model_folder, 'model_params.json'), 'r') as f:
+            dictionary_model_params = json.load(f)
 
-    encoder_model = EncoderPreNorm(**dictionary_model_params)
-    decoder_model = DecoderPreNorm(
-        e_dim=dictionary_model_params['d_model'], 
-        h_dim=dictionary_model_params['d_inner'], 
-        c_space_dim=dictionary_model_params['c_space_dim']
-    )
+        encoder_model = EncoderPreNorm(**dictionary_model_params)
+        decoder_model = DecoderPreNorm(
+            e_dim=dictionary_model_params['d_model'], 
+            h_dim=dictionary_model_params['d_inner'], 
+            c_space_dim=dictionary_model_params['c_space_dim']
+        )
 
-    checkpoint = torch.load(osp.join(dictionary_model_folder, 'best_model.pkl'))
-    
-    # Load model parameters and set it to eval
-    for model, state_dict in zip([encoder_model, quantizer_model, decoder_model], ['encoder_state', 'quantizer_state', 'decoder_state']):
-        model.load_state_dict(checkpoint[state_dict])
-        model.eval()
-        model.to(device)
+        checkpoint = torch.load(osp.join(dictionary_model_folder, 'best_model.pkl'))
+        
+        # Load model parameters and set it to eval
+        for model, state_dict in zip([encoder_model, quantizer_model, decoder_model], ['encoder_state', 'quantizer_state', 'decoder_state']):
+            model.load_state_dict(checkpoint[state_dict])
+            model.eval()
+            model.to(device)
 
-    # Load the AR model.
-    # NOTE: Save these values as dictionary in the future, and load as json.
-    env_params = {
-        'd_model': dictionary_model_params['d_model'],
-        'dropout': 0.1,
-        'n_position': 40*40
-    }
-    ar_model_folder = args.ar_model_folder
-    # Create the environment encoder object.
-    with open(osp.join(ar_model_folder, 'cross_attn.json'), 'r') as f:
-        context_env_encoder_params = json.load(f)
-    context_env_encoder = EnvContextCrossAttModel(env_params, context_env_encoder_params)
-    # Create teh AR model
-    with open(osp.join(ar_model_folder, 'ar_params.json'), 'r') as f:
-        ar_params = json.load(f)
-    ar_model = AutoRegressiveModel(**ar_params)
+        # Load the AR model.
+        # NOTE: Save these values as dictionary in the future, and load as json.
+        env_params = {
+            'd_model': dictionary_model_params['d_model'],
+            'dropout': 0.1,
+            'n_position': 40*40
+        }
+        ar_model_folder = args.ar_model_folder
+        # Create the environment encoder object.
+        with open(osp.join(ar_model_folder, 'cross_attn.json'), 'r') as f:
+            context_env_encoder_params = json.load(f)
+        context_env_encoder = EnvContextCrossAttModel(env_params, context_env_encoder_params)
+        # Create teh AR model
+        with open(osp.join(ar_model_folder, 'ar_params.json'), 'r') as f:
+            ar_params = json.load(f)
+        ar_model = AutoRegressiveModel(**ar_params)
 
-    # Load the parameters and set the model to eval
-    checkpoint = torch.load(osp.join(ar_model_folder, 'best_model.pkl'))
-    for model, state_dict in zip([context_env_encoder, ar_model], ['context_state', 'ar_model_state']):
-        model.load_state_dict(checkpoint[state_dict])
-        model.eval()
-        model.to(device)
+        # Load the parameters and set the model to eval
+        checkpoint = torch.load(osp.join(ar_model_folder, 'best_model.pkl'))
+        for model, state_dict in zip([context_env_encoder, ar_model], ['context_state', 'ar_model_state']):
+            model.load_state_dict(checkpoint[state_dict])
+            model.eval()
+            model.to(device)
 
     # ============================= Run planning experiment ============================
     val_data_folder = args.val_data_folder
