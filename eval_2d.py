@@ -49,11 +49,11 @@ class StateSamplerRegion(ob.StateSampler):
         self.name_ ='region'
         self.qMin = qMin
         self.qMax = qMax
-        self.seq_num = dist_mu.shape[0]
         if dist_mu is None:
             self.X = None
             self.U = stats.uniform(np.zeros_like(qMin), np.ones_like(qMax))
         else:
+            self.seq_num = dist_mu.shape[0]
             self.X = MultivariateNormal(dist_mu,torch.diag_embed(dist_sigma))
                        
     def get_random_samples(self):
