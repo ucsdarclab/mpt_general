@@ -22,27 +22,38 @@ from panda_utils import set_robot, set_position, get_distance
 from panda_utils import ValidityCheckerDistance
 from ompl_utils import get_ompl_state ,get_numpy_state
 
-def set_IK_position(model, joints, end_effector_pose, end_effector_orient):
+def set_IK_position(client_obj, model, joints, end_effector_pose, end_effector_orient=None):
     '''
-    Calcualtes the IK and pjalces the robot hand at the given end-effector position.
+    Calcualtes the IK and places the robot hand at the given end-effector position.
     :param model: pybullet id of robot.
     :param joints: pybullet id of robot link.
     :param end_effector_pose: 3D pose of the end-effector
     :param end_effector_orient: 3D orientation of the end-effector in euler angle.
     '''
-
-    end_effector_orient_quat = pyb.getQuaternionFromEuler(end_effector_orient)
-    joint_pose = p.calculateInverseKinematics(
-        model, 
-        8, 
-        end_effector_pose, 
-        end_effector_orient_quat,
-        q_min[0],
-        q_max[0],
-        (q_max-q_min)[0],
-        (q_max+q_min)[0]/2,
-        maxNumIterations=75
-    )
+    if end_effector_orient is not None:
+        end_effector_orient_quat = pyb.getQuaternionFromEuler(end_effector_orient)
+        joint_pose = client_obj.calculateInverseKinematics(
+            model, 
+            8, 
+            end_effector_pose, 
+            end_effector_orient_quat,
+            q_min[0],
+            q_max[0],
+            (q_max-q_min)[0],
+            (q_max+q_min)[0]/2,
+            maxNumIterations=75
+        )
+    else:
+        joint_pose = client_obj.calculateInverseKinematics(
+            model, 
+            8, 
+            end_effector_pose, 
+            lowerLimits=q_min[0],
+            upperLimits=q_max[0],
+            jointRanges=(q_max-q_min)[0],
+            restPoses=(q_max+q_min)[0]/2,
+            maxNumIterations=75
+        )
     set_position(model, joints, joint_pose)
     return joint_pose
 
