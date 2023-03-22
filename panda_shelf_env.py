@@ -58,11 +58,11 @@ def set_IK_position(client_obj, model, joints, end_effector_pose, end_effector_o
     return joint_pose
 
 
-def get_robot_end_effector_pose(robotID):
+def get_robot_end_effector_pose(client_id, robotID):
     '''
     Returns the cartesian pose of the end-effector
     '''
-    return np.array(p.getLinkState(robotID, 8)[4])
+    return np.array(client_id.getLinkState(robotID, 8)[4])
 
 
 def check_self_collision(robotID):
