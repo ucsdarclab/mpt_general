@@ -160,7 +160,11 @@ def get_path(start, goal, input_map, dist_mu, dist_sigma, cost=None, planner_typ
 
     # Attempt to solve the planning problem in the given time
     start_time = time.time()
-    solved = planner.solve(1.0)
+    solved = planner.solve(10.0)
+    current_time = 0.0
+    while (not pdef.hasOptimizedSolution() and current_time < 300) and not pdef.hasExactSolution():
+        planner.solve(10.0)
+        current_time = time.time()-start_time
     plan_time = time.time()-start_time
     plannerData = ob.PlannerData(si)
     planner.getPlannerData(plannerData)
