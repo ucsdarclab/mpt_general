@@ -362,6 +362,7 @@ def main(args):
     pathTime = []
     pathTimeOverhead = []
     pathVertices = []
+    pathPlanned = []
     predict_seq_time = []
     for env_num in range(start, start+args.samples):
         print(env_num)
@@ -374,40 +375,44 @@ def main(args):
             path_obj = np.linalg.norm(np.diff(data['path'], axis=0), axis=1).sum()
             if data['success']:
                 # Get the context.
-                start_time = time.time()
-                start_n_goal = torch.as_tensor(path[[0, -1], :]/24, dtype=torch.float).to(device)
-                env_input = torch.as_tensor(env_map[None, :], dtype=torch.float).to(device)
-                with torch.no_grad():
-                    context_output = context_env_encoder(env_input[None, :], start_n_goal[None, :])
-                    # Find the sequence of dict values using beam search
-                    quant_keys, _, input_seq = get_beam_search_path(51, 3, context_output, ar_model, quantizer_model)
-                reached_goal = torch.stack(torch.where(quant_keys==1025), dim=1)
-                s = False
-                # if reached_goal.shape[1] > 0:
-                if len(reached_goal) > 0:
-                    # Get the distribution.
-                    output_dist_mu, output_dist_sigma = decoder_model(input_seq[reached_goal[0, 0], 1:reached_goal[0, 1]+1])
-                    dist_mu = output_dist_mu.detach().cpu().squeeze()
-                    dist_sigma = output_dist_sigma.detach().cpu().squeeze()
-                    if len(dist_mu.shape) == 1:
-                        dist_mu = dist_mu[None, :]
-                        dist_sigma = dist_sigma[None, :]
-                    patch_time = time.time() - start_time
-                    _, t, v, s = get_path(path[0], path[-1], env_map, dist_mu, dist_sigma, cost=path_obj, planner_type=args.planner_type)
-                    pathSuccess.append(s)
-                    pathTime.append(t)
-                    pathVertices.append(v)
-                    pathTimeOverhead.append(t)
-                    predict_seq_time.append(patch_time)
+                if use_model:
+                    dist_mu, dist_sigma, patch_time = get_search_dist(path, env_map, context_env_encoder, quantizer_model, ar_model, decoder_model)
                 else:
-                    pathSuccess.append(False)
-                    pathTime.append(0)
-                    pathVertices.append(0)
-                    pathTimeOverhead.append(0)
-                    predict_seq_time.append(0)
-    
-    pathData = {'Time':pathTime, 'Success':pathSuccess, 'Vertices':pathVertices, 'PlanTime':pathTimeOverhead, 'PredictTime': predict_seq_time}
-    fileName = osp.join(ar_model_folder, f'eval_val_plan_{args.planner_type}_{args.map_type}_{start:06d}.p')
+                    dist_mu, dist_sigma, patch_time = None, None, 0.0
+                planned_path, t, v, s = get_path(path[0], path[-1], env_map, dist_mu, dist_sigma, cost=path_obj, planner_type=args.planner_type)
+                pathSuccess.append(s)
+                pathTime.append(t)
+                pathVertices.append(v)
+                pathTimeOverhead.append(t)
+                predict_seq_time.append(patch_time)
+                pathPlanned.append(np.array(planned_path))
+                # # ===================== Replan ===============================
+                # pathSuccess[env_num] = s
+                # pathTime[env_num] = t
+                # pathVertices[env_num] = v
+                # pathTimeOverhead[env_num] = t
+                # predict_seq_time[env_num] = patch_time
+                # pathPlanned[env_num] = np.array(planned_path)
+            else:
+                pathSuccess.append(False)
+                pathTime.append(0)
+                pathVertices.append(0)
+                pathTimeOverhead.append(0)
+                predict_seq_time.append(0)
+                pathPlanned.append([[]])
+
+    pathData = {
+        'Time':pathTime, 
+        'Success':pathSuccess, 
+        'Vertices':pathVertices, 
+        'PlanTime':pathTimeOverhead, 
+        'PredictTime': predict_seq_time,
+        'Path': pathPlanned
+    }
+    if use_model:
+        fileName = osp.join(ar_model_folder, f'eval_val_plan_{args.planner_type}_{args.map_type}_{start:06d}.p')    
+    else:
+        fileName = f'/root/data2d/general_mpt/{args.planner_type}_{args.map_type}_{start:06d}.p'
     pickle.dump(pathData, open(fileName, 'wb'))
 
 
