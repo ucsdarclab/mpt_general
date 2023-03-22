@@ -183,9 +183,9 @@ def get_path(start, goal, env_num, dist_mu=None, dist_sigma=None, cost=None, pla
         planner.setRange(13)
     elif planner_type=='informedrrtstar':
         planner = og.InformedRRTstar(si)
-    # elif plannerType=='bitstar':
-    #     planner = og.BITstar(si)
-    #     planner.setSamplesPerBatch(100)
+    elif planner_type=='bitstar':
+        planner = og.BITstar(si)
+        planner.setSamplesPerBatch(100)
     elif planner_type=='fmtstar':
         planner = og.FMT(si)
     elif planner_type=='rrtconnect':
@@ -206,7 +206,25 @@ def get_path(start, goal, env_num, dist_mu=None, dist_sigma=None, cost=None, pla
 
     # Attempt to solve the planning problem in the given time
     start_time = time.time()
-    solved = planner.solve(60.0)
+    solved = planner.solve(5.0)
+    current_time = 5.0
+    while (not pdef.hasOptimizedSolution() and current_time<250) and not pdef.hasExactSolution():
+        # Only solve for path if there is a solution
+        if pdef.hasExactSolution():
+            # do path simplification
+            path_simplifier = og.PathSimplifier(si)
+            # using try catch here, sometimes path simplification produces
+            # core dumped errors.
+            try:
+                path_simplifier.simplify(pdef.getSolutionPath(), 0.0)
+                print(f"After path simplification, path length: {pdef.getSolutionPath().length()}")
+                if pdef.getSolutionPath().length()<=cost:
+                    break
+            except TypeError:
+                print("Path not able to simplify because no solution found!")
+                pass
+        solved = planner.solve(1)
+        current_time = time.time()-start_time
     # if not pdef.hasExactSolution():
     #     # Redo the state sampler
     #     state_sampler = partial(StateSamplerRegion, dist_mu=None, dist_sigma=None, qMin=q_min, qMax=q_max)
