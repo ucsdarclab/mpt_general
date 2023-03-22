@@ -372,7 +372,15 @@ def main(args):
             path_file = osp.join(val_data_folder, f'env{env_num:06d}/path_{path_num}.p')
             data = pickle.load(open(path_file, 'rb'))
             path = data['path']
-            path_obj = np.linalg.norm(np.diff(data['path'], axis=0), axis=1).sum()
+            if not use_model:
+                if vq_mpt_data['Success'][env_num]:
+                    path_obj = np.linalg.norm(np.diff(vq_mpt_data['Path'][env_num], axis=0), axis=1).sum()
+                    # Add 0.01 to prevent round off errors:
+                    path_obj += 0.01
+                else:
+                    path_obj = np.linalg.norm(np.diff(data['path'], axis=0), axis=1).sum()*2
+            else:
+                path_obj = np.linalg.norm(np.diff(data['path'], axis=0), axis=1).sum()*2
             if data['success']:
                 # Get the context.
                 if use_model:
