@@ -354,6 +354,11 @@ def main(args):
             model.load_state_dict(checkpoint[state_dict])
             model.eval()
             model.to(device)
+    else:
+    # If not planning using VQ-MPT, plan a path of similar length.
+        # Load VQ-MPT planned paths.
+        with open(osp.join(args.ar_model_folder, f'eval_val_plan_rrt_forest_{0:06d}.p'), 'rb') as f:
+            vq_mpt_data = pickle.load(f)
 
     # ============================= Run planning experiment ============================
     val_data_folder = args.val_data_folder
@@ -372,15 +377,12 @@ def main(args):
             path_file = osp.join(val_data_folder, f'env{env_num:06d}/path_{path_num}.p')
             data = pickle.load(open(path_file, 'rb'))
             path = data['path']
+            path_obj = np.linalg.norm(np.diff(data['path'], axis=0), axis=1).sum()*2
             if not use_model:
                 if vq_mpt_data['Success'][env_num]:
                     path_obj = np.linalg.norm(np.diff(vq_mpt_data['Path'][env_num], axis=0), axis=1).sum()
                     # Add 0.01 to prevent round off errors:
                     path_obj += 0.01
-                else:
-                    path_obj = np.linalg.norm(np.diff(data['path'], axis=0), axis=1).sum()*2
-            else:
-                path_obj = np.linalg.norm(np.diff(data['path'], axis=0), axis=1).sum()*2
             if data['success']:
                 # Get the context.
                 if use_model:
