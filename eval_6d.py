@@ -156,12 +156,11 @@ def get_path(start, goal, env_num, dist_mu=None, dist_sigma=None, cost=None, pla
 
     if planner_type=='rrtstar':
         planner = og.RRTstar(si)
-        planner.setRange(13)
     elif planner_type=='informedrrtstar':
         planner = og.InformedRRTstar(si)
-    # elif plannerType=='bitstar':
-    #     planner = og.BITstar(si)
-    #     planner.setSamplesPerBatch(100)
+    elif planner_type=='bitstar':
+        planner = og.BITstar(si)
+        planner.setSamplesPerBatch(100)
     elif planner_type=='fmtstar':
         planner = og.FMT(si)
     elif planner_type=='rrtconnect':
@@ -469,7 +468,7 @@ if __name__ == "__main__":
     parser.add_argument('--start', help="Env number to start", type=int)
     parser.add_argument('--samples', help="Number of samples to collect", type=int)
     parser.add_argument('--num_paths', help="Number of paths for each environment", type=int)
-    parser.add_argument('--planner_type', help="Type of planner to use", choices=['rrtstar', 'rrt', 'rrtconnect', 'informedrrtstar', 'fmtstar'])
+    parser.add_argument('--planner_type', help="Type of planner to use", choices=['rrtstar', 'rrt', 'rrtconnect', 'informedrrtstar', 'fmtstar', 'bitstar'])
 
     args = parser.parse_args()
     main(args)
