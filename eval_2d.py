@@ -174,6 +174,13 @@ def get_path(start, goal, input_map, dist_mu, dist_sigma, cost=None, planner_typ
         success = True
 
         print("Found Solution")
+        # Try path simplification
+        path_simplifier = og.PathSimplifier(si)
+        try:
+            path_simplifier.simplify(pdef.getSolutionPath(), 0.0)
+        except TypeError:
+            print("Path not able to simplify for unknown reasons!")
+            pass
         path = [
             [pdef.getSolutionPath().getState(i)[0], pdef.getSolutionPath().getState(i)[1]]
             for i in range(pdef.getSolutionPath().getStateCount())
