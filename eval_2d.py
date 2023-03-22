@@ -142,11 +142,11 @@ def get_path(start, goal, input_map, dist_mu, dist_sigma, cost=None, planner_typ
 
     if planner_type=='rrtstar':
         planner = og.RRTstar(si)
-    # elif plannerType=='informedrrtstar':
-    #     planner = og.InformedRRTstar(si)
-    # elif plannerType=='bitstar':
-    #     planner = og.BITstar(si)
-    #     planner.setSamplesPerBatch(100)
+    elif planner_type=='irrtstar':
+        planner = og.InformedRRTstar(si)
+    elif planner_type=='bitstar':
+        planner = og.BITstar(si)
+        planner.setSamplesPerBatch(100)
     else:
         print("Using RRT as planner")
         planner_type = 'rrt'
