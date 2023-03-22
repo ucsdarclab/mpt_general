@@ -228,7 +228,7 @@ def get_path(start_state, goal_state, si, total_time=10):
     while not ss.haveExactSolutionPath() and current_time<total_time:
         solved = ss.solve(1)
         current_time += 1
-        # pdef.simplifyap
+        
     if ss.haveExactSolutionPath():
         # Save the trajectory
         print("Found solution")
