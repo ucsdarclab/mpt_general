@@ -91,10 +91,11 @@ def check_self_collision(robotID):
     minDist = np.min(collMat)
     return minDist<0 and not np.isclose(minDist, 0.0)
 
-def set_shelf_obstacles(client_obj, seed):
+def set_shelf_obstacles(client_obj, seed, base_shelf_position):
     '''
     Set the obstacles on the shelf.
     :param client_obj: Bullet client
+    :param seed: seed used to generate obstacles in the shelf.
     :returns list: ID of shelf obstacles.
     '''
     # Define the cylinderical obstacle
@@ -106,6 +107,9 @@ def set_shelf_obstacles(client_obj, seed):
     scale = np.array([0.4, 0.0, 0.0])
     np.random.seed(seed)
     select_shelf = np.random.random_integers(0, 1, 3)
+    shelf_1_offset = np.array([0.1, 0.2, 0.1])
+    shelf_2_offset = np.array([0.1, 0.2, 0.38])
+    shelf_3_offset = np.array([0.1, 0.2, 0.64])
     if select_shelf[0]==1:
         # Shelf 1
         shelf_obstacles.append(
@@ -113,7 +117,7 @@ def set_shelf_obstacles(client_obj, seed):
                 baseMass=0,
                 baseCollisionShapeIndex=geomCylinder,
                 baseVisualShapeIndex=visualCylinder,
-                basePosition=np.array([0.4, -0.4, 0.1])+np.random.rand()*scale,
+                basePosition=base_shelf_position+shelf_1_offset+np.random.rand()*scale,
             )
         )
     if select_shelf[1]==1:
@@ -123,7 +127,7 @@ def set_shelf_obstacles(client_obj, seed):
                 baseMass=0,
                 baseCollisionShapeIndex=geomCylinder,
                 baseVisualShapeIndex=visualCylinder,
-                basePosition=np.array([0.4, -0.4, 0.38])+np.random.rand()*scale,
+                basePosition=base_shelf_position+shelf_2_offset+np.random.rand()*scale,
             )
         )
     if select_shelf[2]==1:
@@ -133,7 +137,7 @@ def set_shelf_obstacles(client_obj, seed):
                 baseMass=0,
                 baseCollisionShapeIndex=geomCylinder,
                 baseVisualShapeIndex=visualCylinder,
-                basePosition=np.array([0.4, -0.4, 0.64])+np.random.rand()*scale,
+                basePosition=base_shelf_position+shelf_3_offset+np.random.rand()*scale,
             )
         )
     return shelf_obstacles
@@ -250,16 +254,16 @@ def get_path(start_state, goal_state, space, all_obstacles, pandaID, jointsID):
     return {'numVertices':numVertices, 'totalTime':totalTime}, False
 
 
-def start_experiment_rrt(start, samples, fileDir, pandaID, jointsID, all_obstacles):
+def start_experiment_rrt(client_id, start, samples, fileDir, pandaID, jointsID, all_obstacles):
     '''
     Run the experiment for random start and goal points.
+    :param client_id: Bullet client
     :param start: the start index of the samples.
     :param samples: the number of samples to collect
     :param fileDir: Directory to store the path details
     :param (pandaID, jointsID, all_obstacles): pybullet ID's of panda arm, joints and obstacles in space
     '''
     assert osp.isdir(fileDir), f"{fileDir} is not a valid directory"
-    p = get_pybullet_server('direct')
     i = start
     tryCount = 0
     # Planning parameters
@@ -272,9 +276,9 @@ def start_experiment_rrt(start, samples, fileDir, pandaID, jointsID, all_obstacl
     space.setBounds(bounds)
     while i<start+samples:
         # If point is still in collision sample new random points
-        valid_goal, goal_joints = try_target_location(p, pandaID, jointsID, all_obstacles)
+        valid_goal, goal_joints = try_target_location(client_id, pandaID, jointsID, all_obstacles)
         while not valid_goal:
-            valid_goal, goal_joints = try_target_location(p, pandaID, jointsID, all_obstacles)
+            valid_goal, goal_joints = try_target_location(client_id, pandaID, jointsID, all_obstacles)
 
         # get start location
         valid_start = try_start_location(pandaID, jointsID, all_obstacles)
@@ -299,46 +303,63 @@ def start_experiment_rrt(start, samples, fileDir, pandaID, jointsID, all_obstacl
             tryCount = 0
 
 
-def place_shelf(client_obj, seed):
+def place_shelf(client_obj, seed, base_pose, base_orient):
     '''
     Place the shelf and obstacles in the given pybullet scene.
     :param client_obj: a pybullet scene handle.
+    :param seed: random seed used to generate obstacles on the shelf.
+    :param base_pose: base position of the shelf.
+    :param base_orient: base orientation of the shelf (yaw, pitch, roll) in radians.
+    :returns list: obstacles ids of shelf and objects in the shelf.
     '''
     # =================== Place cupboard =================================
     # Where to place the desk
-    shift = [0.3, -0.6, 0.0]
     visualShapeId = client_obj.createVisualShape(shapeType=client_obj.GEOM_MESH,
-                                    fileName="assets/cupboard_vhacd.obj",
+                                    fileName="assets/cupboard.obj",
                                     rgbaColor=[1, 1, 1, 1],
                                     specularColor=[0.4, .4, 0],
                                     )
     collisionShapeId = client_obj.createCollisionShape(shapeType=client_obj.GEOM_MESH,
                                         fileName="assets/cupboard_vhacd.obj",
                                         )
-    base_orientation = pyb.getQuaternionFromEuler([np.pi/2, 0.0, 0.0])
+    base_orientation = pyb.getQuaternionFromEuler(base_orient)
     obstacle_cupboard = client_obj.createMultiBody(baseMass=0.0,
-                    #   baseInertialFramePosition=shift,
                       baseCollisionShapeIndex=collisionShapeId,
                       baseVisualShapeIndex=visualShapeId,
-                      basePosition=shift,
+                      basePosition=base_pose,
                       baseOrientation=base_orientation,
                       useMaximalCoordinates=True
                     )
+    return [obstacle_cupboard]
+
+
+def place_shelf_and_obstacles(client_obj, seed, bp_shelf=[0.3, -0.6, 0.0], bo_shelf=[np.pi/2, 0.0, 0.0]):
+    '''
+    Place shelf and obstacles in the environment.
+    :param client_obj: a pybullet scene handle object.
+    :param seed: The seed used to generate obstacles on the shelf.
+    :param bp_shelf: base position of the shelf.
+    :param bo_shelf: base orientation of the shelf.
+    :param bp_obstacles: base position of the obstacles.
+    :return list: all the obstacle ids.
+    '''
+    obstacle_cupboard = place_shelf(client_obj, seed, bp_shelf, bo_shelf)
 
     # Place objects in space.
-    shelf_obstacles = set_shelf_obstacles(client_obj, seed)
+    shelf_obstacles = set_shelf_obstacles(client_obj, seed, bp_shelf)
 
-    all_obstacles = shelf_obstacles + [obstacle_cupboard]
-    return all_obstacles
+    return obstacle_cupboard+shelf_obstacles
 
 def generateEnv(start, samples, numPaths, fileDir):
     '''
     Generate environments with randomly placed obstacles
+    :param client_id: pybullet client id
     :param start: start index of the environment
     :param samples: Number of samples to collect
     :param numPaths: Number of paths to collect for each environment
     :param fileDir: Directory where path are stored
     '''
+    p = get_pybullet_server('direct')
     for seed in range(start, start+samples):
         envFileDir = osp.join(fileDir, f'env_{seed:06d}')
         if not osp.isdir(envFileDir):
@@ -347,7 +368,7 @@ def generateEnv(start, samples, numPaths, fileDir):
         # Reset the environment
         set_simulation_env(p)
         # Place obstacles in space.
-        all_obstacles = place_shelf(p, seed)
+        all_obstacles = place_shelf_and_obstacles(p, seed)
         # Spawn the robot.
         pandaID, jointsID, fingersID = set_robot(p)
 

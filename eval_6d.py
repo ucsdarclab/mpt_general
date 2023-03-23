@@ -35,7 +35,7 @@ from modules.autoregressive import AutoRegressiveModel, EnvContextCrossAttModel
 
 from panda_utils import get_pybullet_server, set_env, q_max, q_min, set_robot, set_simulation_env
 from panda_utils import ValidityCheckerDistance
-from panda_shelf_env import place_shelf
+from panda_shelf_env import place_shelf_and_obstacles
 from ompl_utils import get_ompl_state, get_numpy_state
 
 res = 0.05
@@ -137,7 +137,7 @@ def get_path(start, goal, env_num, dist_mu=None, dist_sigma=None, cost=None, pla
     # # Env - Shelf
     # set_simulation_env(p)
     # pandaID, jointsID, _ = set_robot(p)
-    # all_obstacles = place_shelf(p, seed=env_num) 
+    # all_obstacles = place_shelf_and_obstacles(p, seed=env_num) 
     # validity_checker_obj = ValidityCheckerDistance(si, all_obstacles, pandaID, jointsID)
     si.setStateValidityChecker(validity_checker_obj)
 
