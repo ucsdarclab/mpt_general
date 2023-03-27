@@ -245,6 +245,7 @@ def get_path(start_state, goal_state, si, total_time=10):
     
     return [], [], success
 
+# To collect trajectories for checking self-collision, no obstacles.
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--log_dir', help='Folder where data is saved')
