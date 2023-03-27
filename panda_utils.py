@@ -30,7 +30,18 @@ def set_robot(client_obj, base_pose = np.array([0]*3), base_orientation=np.array
     :param base_orientation: the base orientation of the panda arm in (yaw, pitch, roll)
     '''
     base_ori_quat = pyb.getQuaternionFromEuler(base_orientation)
-    panda = client_obj.loadURDF("franka_panda/panda.urdf", basePosition=base_pose, baseOrientation=base_ori_quat, flags=pyb.URDF_USE_SELF_COLLISION)
+    # panda = client_obj.loadURDF(
+    #     "franka_panda/panda.urdf", 
+    #     basePosition=base_pose, 
+    #     baseOrientation=base_ori_quat,
+    #     flags=pyb.URDF_ENABLE_CACHED_GRAPHICS_SHAPES
+    # )
+    panda = client_obj.loadURDF(
+        "franka_panda/panda.urdf", 
+        basePosition=base_pose, 
+        baseOrientation=base_ori_quat,
+        flags=pyb.URDF_USE_SELF_COLLISION
+    )
     # Get the joint info
     numLinkJoints = pyb.getNumJoints(panda)
     jointInfo = [pyb.getJointInfo(panda, i) for i in range(numLinkJoints)]
