@@ -1,4 +1,7 @@
-''' A script to test the planning model.
+''' Code for evaluating 14D robot
+'''
+
+''' A script to test the planning model for panda
 '''
 
 from torch.nn import functional as F
@@ -15,6 +18,10 @@ import torch
 import json
 import argparse
 import pickle
+import open3d as o3d
+import torch_geometric.data as tg_data
+
+import matplotlib.pyplot as plt
 
 try:
     from ompl import base as ob
@@ -23,18 +30,42 @@ try:
 except ImportError:
     raise "Run code from a container with OMPL installed"
 
+from os import path as osp
+import sys
+sys.path.insert(0, osp.abspath(osp.join(osp.curdir, 'dual_arms')))
+
+from collect_data import set_env
+import dual_arm_utils as dau
 from modules.quantizers import VectorQuantizer
-from modules.decoder import DecoderPreNorm
+from modules.decoder import DecoderPreNorm, DecoderPreNormGeneral
 from modules.encoder import EncoderPreNorm
 
 from modules.autoregressive import AutoRegressiveModel, EnvContextCrossAttModel
 
-from utils import ValidityChecker
+from panda_utils import get_pybullet_server, q_max, q_min
+from panda_shelf_env import place_shelf
+
+def get_ompl_state(space, state):
+    ''' Returns an OMPL state
+    '''
+    ompl_state = ob.State(space)
+    for i in range(14):
+        ompl_state[i] = state[i]
+    return ompl_state
+
+def get_numpy_state(state):
+    ''' Return the state as a numpy array.
+    :param state: An ob.State from ob.RealVectorStateSpace
+    :return np.array:
+    '''
+    return np.array([state[i] for i in range(14)])
 
 res = 0.05
 device = torch.device('cuda') if torch.cuda.is_available() else 'cpu'
 
-eps = 1e-4
+q_bi_max = np.c_[q_max, q_max]
+q_bi_min = np.c_[q_min, q_min]
+
 class StateSamplerRegion(ob.StateSampler):
     '''A class to sample robot joints from a given joint configuration.
     '''
@@ -47,25 +78,28 @@ class StateSamplerRegion(ob.StateSampler):
         '''
         super(StateSamplerRegion, self).__init__(space)
         self.name_ ='region'
-        self.qMin = qMin
-        self.qMax = qMax
+        self.q_min = qMin
+        self.q_max = qMax
         if dist_mu is None:
             self.X = None
             self.U = stats.uniform(np.zeros_like(qMin), np.ones_like(qMax))
         else:
+            # self.X = MultivariateNormal(dist_mu,torch.diag_embed(dist_sigma))
             self.seq_num = dist_mu.shape[0]
-            self.X = MultivariateNormal(dist_mu,torch.diag_embed(dist_sigma))
+            self.X = MultivariateNormal(dist_mu, dist_sigma)
+
                        
     def get_random_samples(self):
         '''Generates a random sample from the list of points
         '''
         index = 0
-        random_samples = np.random.permutation(self.X.sample()*24)
+        random_samples = np.random.permutation(self.X.sample()*(self.q_max-self.q_min)+self.q_min)
+
         while True:
             yield random_samples[index, :]
             index += 1
             if index==self.seq_num:
-                random_samples = np.random.permutation(self.X.sample()*24)
+                random_samples = np.random.permutation(self.X.sample()*(self.q_max-self.q_min)+self.q_min)
                 index = 0
                 
     def sampleUniform(self, state):
@@ -73,21 +107,13 @@ class StateSamplerRegion(ob.StateSampler):
         :param state: ompl.base.Space object
         '''
         if self.X is None:
-            sample_pos = (self.qMax-self.qMin)*self.U.rvs()+self.qMin
+            sample_pos = ((self.q_max-self.q_min)*self.U.rvs()+self.q_min)[0]
         else:
             sample_pos = next(self.get_random_samples())
         for i, val in enumerate(sample_pos):
             state[i] = np.float(val)
         return True
 
-
-def get_ompl_state(space, state):
-    ''' Returns an OMPL state
-    '''
-    ompl_state = ob.State(space)
-    ompl_state[0] = state[0]
-    ompl_state[1] = state[1]
-    return ompl_state
 
 def getPathLengthObjective(cost, si):
     '''
@@ -100,31 +126,43 @@ def getPathLengthObjective(cost, si):
     obj.setCostThreshold(ob.Cost(cost))
     return obj
 
-def get_path(start, goal, input_map, dist_mu, dist_sigma, cost=None, planner_type='rrtstar'):
+def get_path(start, goal, env_num, dist_mu=None, dist_sigma=None, cost=None, planner_type='rrtstar'):
     '''
     Plan a path given the start, goal and patch_map.
     :param start:
     :param goal:
-    :param patch_map:
-    :param plannerType: The planner type to use
-    :param cost: The cost of the path
-    :param exp: If exploration is enabled
-    returns bool: Returns True if a path was planned successfully.
+    :param env_num:
+    :param dist_mu:
+    :param dist_sigma:
+    :param cost:
+    :param planner_type:
+    returns (list, float, int, bool): Returns True if a path was planned successfully.
     '''
-    mapSize = input_map.shape
-    # Planning parametersf
-    space = ob.RealVectorStateSpace(2)
-    bounds = ob.RealVectorBounds(2)
-    bounds.setLow(0.0)
-    bounds.setHigh(0, mapSize[1]*res) # Set width bounds (x)
-    bounds.setHigh(1, mapSize[0]*res) # Set height bounds (y)
+    # Planning parameters
+    space = ob.RealVectorStateSpace(14)
+    bounds = ob.RealVectorBounds(14)
+    # Set joint limits
+    for i in range(14):
+        bounds.setHigh(i, q_bi_max[0, i])
+        bounds.setLow(i, q_bi_min[0, i])
     space.setBounds(bounds)
 
-    state_sampler = partial(StateSamplerRegion, dist_mu=dist_mu, dist_sigma=dist_sigma, qMin=np.array([0, 0]), qMax=np.array([24, 24]))
+    # # Redo the state sampler
+    state_sampler = partial(StateSamplerRegion, dist_mu=dist_mu, dist_sigma=dist_sigma, qMin=q_bi_min, qMax=q_bi_max)
     space.setStateSamplerAllocator(ob.StateSamplerAllocator(state_sampler))
 
     si = ob.SpaceInformation(space)
-    validity_checker_obj = ValidityChecker(si, input_map)
+    p = get_pybullet_server('direct')
+    # Env - random objects
+
+    si = ob.SpaceInformation(space)
+    robotid1, robotid2, all_obstacles = set_env(p, env_num)
+    validity_checker_obj = dau.ValidityCheckerDualDistance(
+        si,
+        robotID_1=(robotid1[0], robotid1[1]),
+        robotID_2=(robotid2[0], robotid2[1]),
+        obstacles=all_obstacles
+    )
     si.setStateValidityChecker(validity_checker_obj)
 
     start_state = get_ompl_state(space, start)
@@ -142,17 +180,25 @@ def get_path(start, goal, input_map, dist_mu, dist_sigma, cost=None, planner_typ
 
     if planner_type=='rrtstar':
         planner = og.RRTstar(si)
-    elif planner_type=='irrtstar':
+        planner.setRange(13)
+    elif planner_type=='informedrrtstar':
         planner = og.InformedRRTstar(si)
     elif planner_type=='bitstar':
         planner = og.BITstar(si)
         planner.setSamplesPerBatch(100)
+    elif planner_type=='fmtstar':
+        planner = og.FMT(si)
+    elif planner_type=='rrtconnect':
+        planner = og.RRTConnect(si)
+        planner.setRange(13)
     else:
-        print("Using RRT as planner")
-        planner_type = 'rrt'
+        print("None of the planners found, using RRT")
         planner = og.RRT(si)
-        # raise TypeError(f"Planner Type {plannerType} not found")
-    
+        planner_type = 'rrt'
+        planner.setRange(13.07)
+    #     raise TypeError(f"Planner Type {plannerType} not found")
+
+    # planner.setRange(0.1)
     # Set the problem instance the planner has to solve
 
     planner.setProblemDefinition(pdef)
@@ -160,11 +206,30 @@ def get_path(start, goal, input_map, dist_mu, dist_sigma, cost=None, planner_typ
 
     # Attempt to solve the planning problem in the given time
     start_time = time.time()
-    solved = planner.solve(10.0)
-    current_time = 0.0
-    while (not pdef.hasOptimizedSolution() and current_time < 300) and not pdef.hasExactSolution():
-        planner.solve(10.0)
+    solved = planner.solve(5.0)
+    current_time = 5.0
+    while (not pdef.hasOptimizedSolution() and current_time<250) and not pdef.hasExactSolution():
+        # Only solve for path if there is a solution
+        if pdef.hasExactSolution():
+            # do path simplification
+            path_simplifier = og.PathSimplifier(si)
+            # using try catch here, sometimes path simplification produces
+            # core dumped errors.
+            try:
+                path_simplifier.simplify(pdef.getSolutionPath(), 0.0)
+                print(f"After path simplification, path length: {pdef.getSolutionPath().length()}")
+                if pdef.getSolutionPath().length()<=cost:
+                    break
+            except TypeError:
+                print("Path not able to simplify because no solution found!")
+                pass
+        solved = planner.solve(1)
         current_time = time.time()-start_time
+    # if not pdef.hasExactSolution():
+    #     # Redo the state sampler
+    #     state_sampler = partial(StateSamplerRegion, dist_mu=None, dist_sigma=None, qMin=q_min, qMax=q_max)
+    #     space.setStateSamplerAllocator(ob.StateSamplerAllocator(state_sampler))
+    #     solved = planner.solve(25.0)
     plan_time = time.time()-start_time
     plannerData = ob.PlannerData(si)
     planner.getPlannerData(plannerData)
@@ -172,32 +237,46 @@ def get_path(start, goal, input_map, dist_mu, dist_sigma, cost=None, planner_typ
 
     if pdef.hasExactSolution():
         success = True
-
-        print("Found Solution")
-        # Try path simplification
+        # Simplify solution
         path_simplifier = og.PathSimplifier(si)
         try:
             path_simplifier.simplify(pdef.getSolutionPath(), 0.0)
         except TypeError:
-            print("Path not able to simplify for unknown reasons!")
+            print("Path not able to simplify for unknown reason!")
             pass
+        print("Found Solution")
+        # TODO: Get final planner path. 
         path = [
-            [pdef.getSolutionPath().getState(i)[0], pdef.getSolutionPath().getState(i)[1]]
+            get_numpy_state(pdef.getSolutionPath().getState(i))
             for i in range(pdef.getSolutionPath().getStateCount())
             ]
     else:
-        path = [[start[0], start[1]], [goal[0], goal[1]]]
+        path = [start, goal]
 
+    # num_vertices = plannerData.numVertices()
+    # sampled_vertex = np.array([get_numpy_state(plannerData.getVertex(i).getState()) for i in range(num_vertices)])
+    # approx_path =np.array([
+    #     get_numpy_state(pdef.getSolutionPath().getState(i))
+    #     for i in range(pdef.getSolutionPath().getStateCount())
+    # ])
+    # fig, ax_all = plt.subplots(1,3, figsize=(24, 8))
+    # for i, ax in enumerate(ax_all):
+    #     ax.scatter(*sampled_vertex[:, 2*i:2*(i+1)].T, color='g', alpha=0.4)
+    #     ax.plot(*approx_path[:, 2*i:2*(i+1)].T, linewidth=2)
+    #     ax.set_xlim([q_min[0, 2*i], q_max[0, 2*i]])
+    #     ax.set_ylim([q_min[0, 2*i +1], q_max[0, 2*i+1]])
+    # plt.savefig(f'sampled_vertex_{env_num}.png')
     return path, plan_time, numVertices, success
 
 
-def get_beam_search_path(max_length, K, context_output, ar_model, quantizer_model):
+def get_beam_search_path(max_length, K, context_output, ar_model, quantizer_model, goal_index):
     ''' A beam search function, that stops when any of the paths hits termination.
     :param max_length: Max length to search.
     :param K: Number of paths to keep.
     :param context_output: the tensor ecoding environment information.
     :param ar_model: nn.Model type for the Auto-Regressor.
     :param quantizer_model: For extracting the feature vector.
+    :param goal_index: Index used to mark end of sequence
     '''
     
     # Create place holder for input sequences.`
@@ -214,7 +293,7 @@ def get_beam_search_path(max_length, K, context_output, ar_model, quantizer_mode
     ar_output = ar_model(ar_model_input_i, mask)
     intial_cost = F.log_softmax(ar_output[:, 2, :], dim=-1)
     # Do not terminate on the final dictionary
-    intial_cost[:, 1025] = -1e9
+    intial_cost[:, goal_index] = -1e9
     path_cost, start_index = intial_cost.topk(k=K, dim=-1)
     start_index = start_index[0]
     path_cost = path_cost[0]
@@ -245,60 +324,76 @@ def get_beam_search_path(max_length, K, context_output, ar_model, quantizer_mode
         path_cost = nxt_cost
 
         # Break at the first sign of termination
-        if (new_sequence[:, 1] == 1025).any():
+        if (new_sequence[:, 1] == goal_index).any():
             break
 
         # Select index
-        select_index = new_sequence[:, 1] !=1025
+        select_index = new_sequence[:, 1] != goal_index
 
         # Update the input embedding. 
         input_seq[select_index, :i+1, :] = input_seq[new_sequence[select_index, 0], :i+1, :]
         input_seq[select_index, i+1, :] = quantizer_model.output_linear_map(quantizer_model.embedding(new_sequence[select_index, 1].to(device)))
     return quant_keys, path_cost, input_seq
 
-def get_search_dist(path, env_map, context_env_encoder, quantizer_model, ar_model, decoder_model):
+
+def get_search_dist(normalized_path, path, map_data, context_encoder, decoder_model, ar_model, quantizer_model, num_keys):
     '''
-    Return the search distribution of the model.
-    :param path: 
-    :param env_map:
-    :param context_env_encoder:
-    :param quantizer_model:
-    :param ar_model:
-    :param decoder_model:
-    :returns ()
+    :returns (torch.tensor, torch.tensor, float): Returns an array of mean and covariance matrix and the time it took to 
+    fetch them.
     '''
+    # Get the context.
     start_time = time.time()
-    normalized_path = path/24
-    start_n_goal = torch.as_tensor(normalized_path[[0, -1], :], dtype=torch.float).to(device)
-    env_input = torch.as_tensor(env_map[None, :], dtype=torch.float).to(device)
-    with torch.no_grad():
-        context_output = context_env_encoder(env_input[None, :], start_n_goal[None, :])
-        # Find the sequence of dict values using beam search
-        quant_keys, _, input_seq = get_beam_search_path(51, 3, context_output, ar_model, quantizer_model)
-    reached_goal = torch.stack(torch.where(quant_keys==1025), dim=1)
-    s = False
-    # if reached_goal.shape[1] > 0:
+    start_n_goal = torch.as_tensor(normalized_path[[0, -1]], dtype=torch.float)
+    env_input = tg_data.Batch.from_data_list([map_data])
+    context_output = context_encoder(env_input, start_n_goal[None, :].to(device))
+    # Find the sequence of dict values using beam search
+    goal_index = num_keys+1
+    quant_keys, _, input_seq = get_beam_search_path(51, 3, context_output, ar_model, quantizer_model, goal_index)
+    # # -------------------------------- Testing training data ------------------------------
+    # # Load quant keys from data.
+    # with open(osp.join(args.dict_model_folder, 'quant_key', 'pandav3', 'val', f'env_{env_num:06d}', f'path_{path_num}.p'), 'rb') as f:
+    #     quant_data = pickle.load(f)
+    #     input_seq = quantizer_model.output_linear_map(quantizer_model.embedding(torch.tensor(quant_data['keys'], device=device)[None, :]))
+    #     quant_keys = torch.cat((torch.tensor(quant_data['keys']), torch.tensor([goal_index])))[None, :]
+    # # --------------------------------- x ------------- x ---------------------------------
+
+    reached_goal = torch.stack(torch.where(quant_keys==goal_index), dim=1)
     if len(reached_goal) > 0:
         # Get the distribution.
-        output_dist_mu, output_dist_sigma = decoder_model(input_seq[reached_goal[0, 0], 1:reached_goal[0, 1]+1])
-        dist_mu = output_dist_mu.detach().cpu().squeeze()
-        dist_sigma = output_dist_sigma.detach().cpu().squeeze()
+        # Ignore the zero index, since it is encoding representation of start vector.
+        output_dist_mu, output_dist_sigma = decoder_model(input_seq[reached_goal[0, 0], 1:reached_goal[0, 1]+1][None, :])
+        # # -------------------------------- Testing training data ------------------------------
+        # output_dist_mu, output_dist_sigma = decoder_model(input_seq)
+        # # --------------------------------- x ------------- x ---------------------------------
+        dist_mu = output_dist_mu.detach().cpu()
+        dist_sigma = output_dist_sigma.detach().cpu()
+        # If only a single point is predicted, then reshape the vector to a 2D tensor.
         if len(dist_mu.shape) == 1:
             dist_mu = dist_mu[None, :]
             dist_sigma = dist_sigma[None, :]
+        # NOTE: set the 7th joint to zero degrees.
+        # # ========================== No added goal =================================
+        # search_dist_mu = torch.zeros((reached_goal[0, 1], 7))
+        # search_dist_mu[:, :6] = output_dist_mu
+        # # search_dist_sigma = torch.ones((reached_goal[0, 1], 7))
+        # # search_dist_sigma[:, :6] = output_dist_sigma
+        # search_dist_sigma = torch.diag_embed(torch.ones((reached_goal[0, 1], 7)))
+        # search_dist_sigma[:, :6, :6] = torch.tensor(output_dist_sigma)
+        # # ==========================================================================
         # ========================== append search with goal  ======================
-        search_dist_mu = torch.zeros((reached_goal[0, 1]+1, 2))
+        search_dist_mu = torch.zeros((reached_goal[0, 1]+1, 14))
         search_dist_mu[:reached_goal[0, 1], :] = dist_mu
         search_dist_mu[reached_goal[0, 1], :] = torch.tensor(normalized_path[-1])
-        search_dist_sigma = torch.ones((reached_goal[0, 1]+1, 2))
-        search_dist_sigma[:reached_goal[0, 1], :] = torch.tensor(dist_sigma)
-        search_dist_sigma[reached_goal[0, 1], :] = search_dist_sigma[reached_goal[0, 1], :]*0.01
-        # ==========================================================================         
+        search_dist_sigma = torch.diag_embed(torch.ones((reached_goal[0, 1]+1, 14)))
+        search_dist_sigma[:reached_goal[0, 1], :, :] = torch.tensor(dist_sigma)
+        search_dist_sigma[reached_goal[0, 1], :, :] = search_dist_sigma[reached_goal[0, 1], :, :]*0.01
+        # ==========================================================================
     else:
-        search_dist_mu, search_dist_sigma = None, None
-    patch_time = time.time() - start_time
+        search_dist_mu = None
+        search_dist_sigma = None
+    patch_time = time.time()-start_time
     return search_dist_mu, search_dist_sigma, patch_time
-
+ 
 
 def main(args):
     ''' Main running script.
@@ -306,10 +401,14 @@ def main(args):
     '''
     use_model = False if args.dict_model_folder is None else True
     if use_model:
+        print("Using model")
         # ========================= Load trained model ===========================
         # Define the models
         d_model = 512
-        quantizer_model = VectorQuantizer(n_e=1024, e_dim=8, latent_dim=d_model)
+        #TODO: Get the number of keys from the saved data
+        num_keys = 2048
+        goal_index = num_keys + 1
+        quantizer_model = VectorQuantizer(n_e=num_keys, e_dim=8, latent_dim=d_model)
 
         # Load quantizer model.
         dictionary_model_folder = args.dict_model_folder
@@ -317,7 +416,7 @@ def main(args):
             dictionary_model_params = json.load(f)
 
         encoder_model = EncoderPreNorm(**dictionary_model_params)
-        decoder_model = DecoderPreNorm(
+        decoder_model = DecoderPreNormGeneral(
             e_dim=dictionary_model_params['d_model'], 
             h_dim=dictionary_model_params['d_inner'], 
             c_space_dim=dictionary_model_params['c_space_dim']
@@ -335,15 +434,13 @@ def main(args):
         # NOTE: Save these values as dictionary in the future, and load as json.
         env_params = {
             'd_model': dictionary_model_params['d_model'],
-            'dropout': 0.1,
-            'n_position': 40*40
         }
         ar_model_folder = args.ar_model_folder
         # Create the environment encoder object.
         with open(osp.join(ar_model_folder, 'cross_attn.json'), 'r') as f:
             context_env_encoder_params = json.load(f)
-        context_env_encoder = EnvContextCrossAttModel(env_params, context_env_encoder_params)
-        # Create teh AR model
+        context_env_encoder = EnvContextCrossAttModel(env_params, context_env_encoder_params, robot='6D')
+        # Create the AR model
         with open(osp.join(ar_model_folder, 'ar_params.json'), 'r') as f:
             ar_params = json.load(f)
         ar_model = AutoRegressiveModel(**ar_params)
@@ -355,9 +452,8 @@ def main(args):
             model.eval()
             model.to(device)
     else:
-    # If not planning using VQ-MPT, plan a path of similar length.
-        # Load VQ-MPT planned paths.
-        with open(osp.join(args.ar_model_folder, f'eval_val_plan_rrt_forest_{0:06d}.p'), 'rb') as f:
+        # Load VQ-MPT planned paths:
+        with open(osp.join(args.ar_model_folder, f'eval_val_plan_rrt_{2001:06d}.p'), 'rb') as f:
             vq_mpt_data = pickle.load(f)
 
     # ============================= Run planning experiment ============================
@@ -371,58 +467,48 @@ def main(args):
     predict_seq_time = []
     for env_num in range(start, start+args.samples):
         print(env_num)
-        map_file = osp.join(val_data_folder, f'env{env_num:06d}/map_{env_num}.png')
-        env_map = skimage.io.imread(map_file, as_gray=True)
+
+        map_file = osp.join(val_data_folder, f'env_{env_num:06d}/map_{env_num}.ply')
+        data_PC = o3d.io.read_point_cloud(map_file, format='ply')
+        depth_points = np.array(data_PC.points)
+        map_data = tg_data.Data(pos=torch.as_tensor(depth_points, dtype=torch.float, device=device))
+
         for path_num in range(args.num_paths):
-            path_file = osp.join(val_data_folder, f'env{env_num:06d}/path_{path_num}.p')
+            path_file = osp.join(val_data_folder, f'env_{env_num:06d}/path_{path_num}.p')
             data = pickle.load(open(path_file, 'rb'))
-            path = data['path']
-            path_obj = np.linalg.norm(np.diff(data['path'], axis=0), axis=1).sum()*2
+            path = (data['path']-q_bi_min)/(q_bi_max-q_bi_min)
+            path_obj = np.linalg.norm(np.diff(data['path'], axis=0), axis=1).sum()
             if not use_model:
-                if vq_mpt_data['Success'][env_num]:
-                    path_obj = np.linalg.norm(np.diff(vq_mpt_data['Path'][env_num], axis=0), axis=1).sum()
-                    # Add 0.01 to prevent round off errors:
+                if vq_mpt_data['Success'][env_num-2001]:
+                    path_obj = np.linalg.norm(np.diff(vq_mpt_data['Path'][env_num-2001], axis=0), axis=1).sum()
+                    # Add 0.01 to prevent round off errors
                     path_obj += 0.01
             if data['success']:
-                # Get the context.
                 if use_model:
-                    dist_mu, dist_sigma, patch_time = get_search_dist(path, env_map, context_env_encoder, quantizer_model, ar_model, decoder_model)
+                    search_dist_mu, search_dist_sigma, patch_time = get_search_dist(path, data['path'], map_data, context_env_encoder, decoder_model, ar_model, quantizer_model, num_keys)
                 else:
-                    dist_mu, dist_sigma, patch_time = None, None, 0.0
-                planned_path, t, v, s = get_path(path[0], path[-1], env_map, dist_mu, dist_sigma, cost=path_obj, planner_type=args.planner_type)
+                    search_dist_mu, search_dist_sigma, patch_time = None, None, 0.0
+            
+                planned_path, t, v, s = get_path(data['path'][0], data['path'][-1], env_num, search_dist_mu, search_dist_sigma, cost=path_obj, planner_type=args.planner_type)
                 pathSuccess.append(s)
                 pathTime.append(t)
                 pathVertices.append(v)
                 pathTimeOverhead.append(t)
-                predict_seq_time.append(patch_time)
                 pathPlanned.append(np.array(planned_path))
-                # # ===================== Replan ===============================
-                # pathSuccess[env_num] = s
-                # pathTime[env_num] = t
-                # pathVertices[env_num] = v
-                # pathTimeOverhead[env_num] = t
-                # predict_seq_time[env_num] = patch_time
-                # pathPlanned[env_num] = np.array(planned_path)
+                predict_seq_time.append(patch_time)
             else:
                 pathSuccess.append(False)
                 pathTime.append(0)
                 pathVertices.append(0)
                 pathTimeOverhead.append(0)
-                predict_seq_time.append(0)
                 pathPlanned.append([[]])
-
-    pathData = {
-        'Time':pathTime, 
-        'Success':pathSuccess, 
-        'Vertices':pathVertices, 
-        'PlanTime':pathTimeOverhead, 
-        'PredictTime': predict_seq_time,
-        'Path': pathPlanned
-    }
+                predict_seq_time.append(0)
+    
+    pathData = {'Time':pathTime, 'Success':pathSuccess, 'Vertices':pathVertices, 'PlanTime':pathTimeOverhead, 'PredictTime': predict_seq_time, 'Path': pathPlanned}
     if use_model:
-        fileName = osp.join(ar_model_folder, f'eval_val_plan_{args.planner_type}_{args.map_type}_{start:06d}.p')    
+        fileName = osp.join(ar_model_folder, f'eval_val_plan_{args.planner_type}_{start:06d}.p')
     else:
-        fileName = f'/root/data2d/general_mpt/{args.planner_type}_{args.map_type}_{start:06d}.p'
+        fileName = f'/root/data/general_mpt_bi_panda/{args.planner_type}_{start:06d}.p'
     pickle.dump(pathData, open(fileName, 'wb'))
 
 
@@ -434,8 +520,7 @@ if __name__ == "__main__":
     parser.add_argument('--start', help="Env number to start", type=int)
     parser.add_argument('--samples', help="Number of samples to collect", type=int)
     parser.add_argument('--num_paths', help="Number of paths for each environment", type=int)
-    parser.add_argument('--map_type', help="Type of map", choices=['forest', 'maze'])
-    parser.add_argument('--planner_type', help="Type of planner to use", choices=['rrtstar', 'rrt', 'irrtstar', 'bitstar'])
+    parser.add_argument('--planner_type', help="Type of planner to use", choices=['rrtstar', 'rrt', 'rrtconnect', 'informedrrtstar', 'fmtstar', 'bitstar'])
 
     args = parser.parse_args()
     main(args)

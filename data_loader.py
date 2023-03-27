@@ -114,6 +114,7 @@ def get_quant_manipulation_sequence(batch):
         [batch_i['start_n_goal'][None, :] for batch_i in batch])
     return data
 
+import warnings
 
 class QuantManipulationDataLoader(Dataset):
     ''' Data loader for quantized data values and associated point cloud.
@@ -123,7 +124,8 @@ class QuantManipulationDataLoader(Dataset):
                  quantizer_model,
                  env_list,
                  map_data_folder,
-                 quant_data_folder):
+                 quant_data_folder,
+                 dual_arm=False):
         '''
         :param quantizer_model: The quantizer model to use.
         :param env_list: List of environments to use for training.
@@ -132,16 +134,31 @@ class QuantManipulationDataLoader(Dataset):
         '''
         self.quant_data_folder = quant_data_folder
         self.map_data_folder = map_data_folder
-        self.index_dict = [(envNum, int(re.findall('[0-9]+', filei)[0]))
-                           for envNum in env_list
-                           for filei in os.listdir(osp.join(quant_data_folder, f'env_{envNum:06d}'))
-                           if filei.endswith('.p')
-                           ]
+        self.index_dict = []
+        for envNum in env_list:
+            env_dir = osp.join(quant_data_folder, f'env_{envNum:06d}')
+            if not osp.isdir(env_dir):
+                continue
+            for filei in os.listdir(env_dir):
+                if filei.endswith('.p'):
+                    self.index_dict.append((envNum, int(re.findall('[0-9]+', filei)[0])))
+        if len(self.index_dict)==0:
+            warnings.warn("No data found !!")
+
         self.quantizer_model = quantizer_model
 
         total_num_embedding = quantizer_model.embedding.weight.shape[0]
         self.start_index = total_num_embedding
         self.goal_index = total_num_embedding + 1
+        self.dual_arm = dual_arm
+        if dual_arm:
+            self.path_index = 'path'
+            self.q_b_max = np.c_[q_max, q_max]
+            self.q_b_min = np.c_[q_min, q_min]
+        else:
+            self.path_index = 'jointPath'
+            self.q_b_max = q_max
+            self.q_b_min = q_min
 
     def __len__(self):
         ''' Return the length of the dataset.
@@ -163,12 +180,16 @@ class QuantManipulationDataLoader(Dataset):
         # Load start and goal states.
         with open(osp.join(data_folder, f'path_{path_num}.p'), 'rb') as f:
             data_path = pickle.load(f)
-            joint_path = data_path['jointPath']
+            joint_path = data_path[self.path_index]
             # flip array if index is odd.
             if index%2==1:
                 joint_path = joint_path[::-1]
+        
         # Normalize the trajectory.
-        start_n_goal = ((joint_path-q_min)/(q_max-q_min))[[0, -1], :6]
+        if self.dual_arm:
+            start_n_goal = ((joint_path-self.q_b_min)/(self.q_b_max-self.q_b_min))[[0, -1], :]
+        else:
+            start_n_goal = ((joint_path-self.q_b_min)/(self.q_b_max-self.q_b_min))[[0, -1], :6]
 
         # Load the quant-data
         with open(osp.join(self.quant_data_folder, f'env_{env_num:06d}', f'path_{path_num}.p'), 'rb') as f:

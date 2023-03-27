@@ -156,12 +156,11 @@ def get_path(start, goal, env_num, dist_mu=None, dist_sigma=None, cost=None, pla
 
     if planner_type=='rrtstar':
         planner = og.RRTstar(si)
-        planner.setRange(13)
     elif planner_type=='informedrrtstar':
         planner = og.InformedRRTstar(si)
-    # elif plannerType=='bitstar':
-    #     planner = og.BITstar(si)
-    #     planner.setSamplesPerBatch(100)
+    elif planner_type=='bitstar':
+        planner = og.BITstar(si)
+        planner.setSamplesPerBatch(100)
     elif planner_type=='fmtstar':
         planner = og.FMT(si)
     elif planner_type=='rrtconnect':
@@ -183,6 +182,10 @@ def get_path(start, goal, env_num, dist_mu=None, dist_sigma=None, cost=None, pla
     # Attempt to solve the planning problem in the given time
     start_time = time.time()
     solved = planner.solve(30.0)
+    current_time = 0.0
+    while (not pdef.hasOptimizedSolution() and current_time<300) and not pdef.hasExactSolution():
+        planner.solve(30)
+        current_time = time.time()-start_time
     # if not pdef.hasExactSolution():
     #     # Redo the state sampler
     #     state_sampler = partial(StateSamplerRegion, dist_mu=None, dist_sigma=None, qMin=q_min, qMax=q_max)
@@ -409,7 +412,10 @@ def main(args):
             model.load_state_dict(checkpoint[state_dict])
             model.eval()
             model.to(device)
-
+    else:
+        # Load VQ-MPT planned paths, for setting optimization objective.
+        with open(osp.join(args.ar_model_folder, f'eval_val_plan_rrt_{2000:06d}.p'), 'rb') as f:
+            vq_mpt_data = pickle.load(f)
     # ============================= Run planning experiment ============================
     val_data_folder = args.val_data_folder
     start = args.start
@@ -431,7 +437,12 @@ def main(args):
             path_file = osp.join(val_data_folder, f'env_{env_num:06d}/path_{path_num}.p')
             data = pickle.load(open(path_file, 'rb'))
             path = (data['jointPath']-q_min)/(q_max-q_min)
-            path_obj = np.linalg.norm(np.diff(data['jointPath'], axis=0), axis=1).sum()
+            path_obj = np.linalg.norm(np.diff(data['jointPath'], axis=0), axis=1).sum()*2
+            if not use_model:
+                if vq_mpt_data['Success'][env_num-2000]:
+                    path_obj = np.linalg.norm(np.diff(vq_mpt_data['Path'][env_num-2000], axis=0), axis=1).sum()
+                    # Add 0.01 to prevent round off errors
+                    path_obj += 0.01
             if data['success']:
                 if use_model:
                     search_dist_mu, search_dist_sigma, patch_time = get_search_dist(path, data['jointPath'], map_data, context_env_encoder, decoder_model, ar_model, quantizer_model, num_keys)
@@ -469,7 +480,7 @@ if __name__ == "__main__":
     parser.add_argument('--start', help="Env number to start", type=int)
     parser.add_argument('--samples', help="Number of samples to collect", type=int)
     parser.add_argument('--num_paths', help="Number of paths for each environment", type=int)
-    parser.add_argument('--planner_type', help="Type of planner to use", choices=['rrtstar', 'rrt', 'rrtconnect', 'informedrrtstar', 'fmtstar'])
+    parser.add_argument('--planner_type', help="Type of planner to use", choices=['rrtstar', 'rrt', 'rrtconnect', 'informedrrtstar', 'fmtstar', 'bitstar'])
 
     args = parser.parse_args()
     main(args)

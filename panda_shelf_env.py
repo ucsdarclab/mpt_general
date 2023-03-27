@@ -22,36 +22,47 @@ from panda_utils import set_robot, set_position, get_distance
 from panda_utils import ValidityCheckerDistance
 from ompl_utils import get_ompl_state ,get_numpy_state
 
-def set_IK_position(model, joints, end_effector_pose, end_effector_orient):
+def set_IK_position(client_obj, model, joints, end_effector_pose, end_effector_orient=None):
     '''
-    Calcualtes the IK and pjalces the robot hand at the given end-effector position.
+    Calcualtes the IK and places the robot hand at the given end-effector position.
     :param model: pybullet id of robot.
     :param joints: pybullet id of robot link.
     :param end_effector_pose: 3D pose of the end-effector
     :param end_effector_orient: 3D orientation of the end-effector in euler angle.
     '''
-
-    end_effector_orient_quat = pyb.getQuaternionFromEuler(end_effector_orient)
-    joint_pose = p.calculateInverseKinematics(
-        model, 
-        8, 
-        end_effector_pose, 
-        end_effector_orient_quat,
-        q_min[0],
-        q_max[0],
-        (q_max-q_min)[0],
-        (q_max+q_min)[0]/2,
-        maxNumIterations=75
-    )
+    if end_effector_orient is not None:
+        end_effector_orient_quat = pyb.getQuaternionFromEuler(end_effector_orient)
+        joint_pose = client_obj.calculateInverseKinematics(
+            model, 
+            8, 
+            end_effector_pose, 
+            end_effector_orient_quat,
+            q_min[0],
+            q_max[0],
+            (q_max-q_min)[0],
+            (q_max+q_min)[0]/2,
+            maxNumIterations=75
+        )
+    else:
+        joint_pose = client_obj.calculateInverseKinematics(
+            model, 
+            8, 
+            end_effector_pose, 
+            lowerLimits=q_min[0],
+            upperLimits=q_max[0],
+            jointRanges=(q_max-q_min)[0],
+            restPoses=(q_max+q_min)[0]/2,
+            maxNumIterations=75
+        )
     set_position(model, joints, joint_pose)
     return joint_pose
 
 
-def get_robot_end_effector_pose(robotID):
+def get_robot_end_effector_pose(client_id, robotID):
     '''
     Returns the cartesian pose of the end-effector
     '''
-    return np.array(p.getLinkState(robotID, 8)[4])
+    return np.array(client_id.getLinkState(robotID, 8)[4])
 
 
 def check_self_collision(robotID):
@@ -145,7 +156,7 @@ def check_bounds(joint_angle):
     '''
     return (joint_angle<=q_max[0]).all() and (joint_angle>=q_min[0]).all()
 
-def try_target_location(robotID, jointsID,  obstacles):
+def try_target_location(client_obj, robotID, jointsID,  obstacles):
     '''
     Attempts to place robot at random target location.
     :param robotID: pybullet ID of the robot.
@@ -157,13 +168,13 @@ def try_target_location(robotID, jointsID,  obstacles):
     # TODO: Randomize target orientation.
     random_orient = [np.pi/2, -np.pi/2, 0.0]
     random_pose = base_pose + scale*np.random.rand(3)
-    set_joint_pose = np.array(set_IK_position(robotID, jointsID, random_pose, random_orient))[:7]
+    set_joint_pose = np.array(set_IK_position(client_obj, robotID, jointsID, random_pose, random_orient))[:7]
     # Check if the robot is in self-collision/collision w/ obstacles.
     if check_self_collision(robotID) or get_distance(obstacles, robotID)<=0 or (not check_bounds(set_joint_pose)):
         # If so randomize the joints and calculate IK once again.
         random_joint_pose = (q_min + (q_max - q_min)*np.random.rand(7))[0]
         set_position(robotID, jointsID, random_joint_pose)
-        set_joint_pose = np.array(set_IK_position(robotID, jointsID, random_pose, random_orient))[:7]
+        set_joint_pose = np.array(set_IK_position(client_obj, robotID, jointsID, random_pose, random_orient))[:7]
         if check_self_collision(robotID) or get_distance(obstacles, robotID)<=0 or (not check_bounds(set_joint_pose)):
             return False, set_joint_pose
     return True, set_joint_pose
@@ -248,6 +259,7 @@ def start_experiment_rrt(start, samples, fileDir, pandaID, jointsID, all_obstacl
     :param (pandaID, jointsID, all_obstacles): pybullet ID's of panda arm, joints and obstacles in space
     '''
     assert osp.isdir(fileDir), f"{fileDir} is not a valid directory"
+    p = get_pybullet_server('direct')
     i = start
     tryCount = 0
     # Planning parameters
@@ -260,9 +272,9 @@ def start_experiment_rrt(start, samples, fileDir, pandaID, jointsID, all_obstacl
     space.setBounds(bounds)
     while i<start+samples:
         # If point is still in collision sample new random points
-        valid_goal, goal_joints = try_target_location(pandaID, jointsID, all_obstacles)
+        valid_goal, goal_joints = try_target_location(p, pandaID, jointsID, all_obstacles)
         while not valid_goal:
-            valid_goal, goal_joints = try_target_location(pandaID, jointsID, all_obstacles)
+            valid_goal, goal_joints = try_target_location(p, pandaID, jointsID, all_obstacles)
 
         # get start location
         valid_start = try_start_location(pandaID, jointsID, all_obstacles)
@@ -348,6 +360,5 @@ if __name__ == "__main__":
     parser.add_argument('--fileDir', help="Folder to save the files", required=True)
     parser.add_argument('--numPaths', type=int)
     args = parser.parse_args()
-    p = get_pybullet_server('direct')
 
     generateEnv(args.start, args.samples, args.numPaths, args.fileDir)
