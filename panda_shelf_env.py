@@ -303,11 +303,10 @@ def start_experiment_rrt(client_id, start, samples, fileDir, pandaID, jointsID, 
             tryCount = 0
 
 
-def place_shelf(client_obj, seed, base_pose, base_orient):
+def place_shelf(client_obj, base_pose, base_orient):
     '''
     Place the shelf and obstacles in the given pybullet scene.
     :param client_obj: a pybullet scene handle.
-    :param seed: random seed used to generate obstacles on the shelf.
     :param base_pose: base position of the shelf.
     :param base_orient: base orientation of the shelf (yaw, pitch, roll) in radians.
     :returns list: obstacles ids of shelf and objects in the shelf.
@@ -315,7 +314,7 @@ def place_shelf(client_obj, seed, base_pose, base_orient):
     # =================== Place cupboard =================================
     # Where to place the desk
     visualShapeId = client_obj.createVisualShape(shapeType=client_obj.GEOM_MESH,
-                                    fileName="assets/cupboard.obj",
+                                    fileName="assets/cupboard_vhacd.obj",
                                     rgbaColor=[1, 1, 1, 1],
                                     specularColor=[0.4, .4, 0],
                                     )
@@ -333,7 +332,7 @@ def place_shelf(client_obj, seed, base_pose, base_orient):
     return [obstacle_cupboard]
 
 
-def place_shelf_and_obstacles(client_obj, seed, bp_shelf=[0.3, -0.6, 0.0], bo_shelf=[np.pi/2, 0.0, 0.0]):
+def place_shelf_and_obstacles(client_obj, seed, bp_shelf=[0.3, -0.6, 0.0], bo_shelf=[np.pi/2, 0.0, 0.0], bp_obs=None):
     '''
     Place shelf and obstacles in the environment.
     :param client_obj: a pybullet scene handle object.
@@ -343,10 +342,12 @@ def place_shelf_and_obstacles(client_obj, seed, bp_shelf=[0.3, -0.6, 0.0], bo_sh
     :param bp_obstacles: base position of the obstacles.
     :return list: all the obstacle ids.
     '''
-    obstacle_cupboard = place_shelf(client_obj, seed, bp_shelf, bo_shelf)
+    if bp_obs is None:
+        bp_obs = bp_shelf
+    obstacle_cupboard = place_shelf(client_obj, bp_shelf, bo_shelf)
 
     # Place objects in space.
-    shelf_obstacles = set_shelf_obstacles(client_obj, seed, bp_shelf)
+    shelf_obstacles = set_shelf_obstacles(client_obj, seed, bp_obs)
 
     return obstacle_cupboard+shelf_obstacles
 
