@@ -166,7 +166,7 @@ if __name__=="__main__":
     # Check if environment folder has enough trajectories.
     cur_path = len([filei for filei in os.listdir(env_file_dir) if filei.endswith('.p')])
 
-    p = pdu.get_pybullet_server('gui')
+    p = pdu.get_pybullet_server('direct')
     robotid1, robotid2 = dau.set_dual_robot(p)
     seed = 1
 
