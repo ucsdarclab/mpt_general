@@ -31,7 +31,7 @@ def set_env(client_obj, env_num):
     return robotid1, robotid2, all_obstacles
 
 
-def generate_trajectories(client_obj, env_num, space, num_paths, file_dir):
+def generate_trajectories(client_obj, env_num, space, num_paths, file_dir, cur_path=0):
     '''Generate trajectories for the given environment.
     :param env_num: numpy seed to set.
     :param space: an ompl.base object
@@ -50,7 +50,6 @@ def generate_trajectories(client_obj, env_num, space, num_paths, file_dir):
     start_state = ob.State(space)
     goal_state = ob.State(space)
 
-    cur_path = 0
     while cur_path<num_paths:
         start_state.random()
         while not valid_checker_obj.isValid(start_state()):
@@ -64,6 +63,7 @@ def generate_trajectories(client_obj, env_num, space, num_paths, file_dir):
         path, path_interpolated, success = dau.get_path(start_state, goal_state, si, 90)
 
         if success:
+            print(f"Collected Path {cur_path} for  Env {env_num}")
             traj_data = {'path':path, 'path_interpolated':path_interpolated, 'success':success}
             pickle.dump(traj_data, open(osp.join(file_dir, f'path_{cur_path}.p'), 'wb'))
             cur_path += 1
@@ -94,4 +94,8 @@ if __name__ == "__main__":
         if not osp.isdir(env_file_dir):
             os.mkdir(env_file_dir)
 
-        generate_trajectories(p, env_num, space, args.num_paths, env_file_dir)
+        # Check if environment folder has enough trajectories.
+        cur_path= len([filei for filei in os.listdir(env_file_dir) if filei.endswith('.p')])
+        if cur_path==args.num_paths:
+            continue
+        generate_trajectories(p, env_num, space, args.num_paths, env_file_dir, cur_path)
