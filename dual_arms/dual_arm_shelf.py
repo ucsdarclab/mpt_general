@@ -199,7 +199,7 @@ if __name__=="__main__":
     while cur_path<args.num_paths:
         start_n_goal = None
         # Set up planning for the robots.
-        while start_n_goal is not None:
+        while start_n_goal is None:
             # Randomly choose one of the sequence.
             start_n_goal = get_start_n_goal(robotid1, robotid2, all_obstacles, seq[np.random.randint(0, 2)])
 
