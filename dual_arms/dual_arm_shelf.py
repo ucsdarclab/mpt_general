@@ -213,5 +213,5 @@ if __name__=="__main__":
         if success:
             print(f"Collected path {cur_path}")
             traj_data = {'path':path, 'path_interpolated': path_interpolated, 'success': success}
-            pickle.dump(traj_data, open(osp.join(env_file_dir, f'path_{cur_path}.p'), 'rb'))
+            pickle.dump(traj_data, open(osp.join(env_file_dir, f'path_{cur_path}.p'), 'wb'))
             cur_path +=1
