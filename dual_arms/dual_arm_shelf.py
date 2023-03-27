@@ -72,9 +72,9 @@ def generate_scene(client_obj):
     rbga_wood = [0.54, 0.31, 0.21, 1]
     # Define table/box
     base_dim = [0.2, 0.3, 0.1]
-    geomBox = p.createCollisionShape(pyb.GEOM_BOX, halfExtents=base_dim)
-    visualBox = p.createVisualShape(pyb.GEOM_BOX, halfExtents=base_dim, rgbaColor=rbga_wood)
-    all_obstacles.append(p.createMultiBody(
+    geomBox = client_obj.createCollisionShape(pyb.GEOM_BOX, halfExtents=base_dim)
+    visualBox = client_obj.createVisualShape(pyb.GEOM_BOX, halfExtents=base_dim, rgbaColor=rbga_wood)
+    all_obstacles.append(client_obj.createMultiBody(
             baseMass=0,
             baseCollisionShapeIndex=geomBox,
             baseVisualShapeIndex=visualBox,
@@ -84,9 +84,9 @@ def generate_scene(client_obj):
     )
     # Define shelf
     base_dim = [0.15, 0.35, 0.025]
-    geomBox = p.createCollisionShape(pyb.GEOM_BOX, halfExtents=base_dim)
-    visualBox = p.createVisualShape(pyb.GEOM_BOX, halfExtents=base_dim, rgbaColor=rbga_wood)
-    all_obstacles.append(p.createMultiBody(
+    geomBox = client_obj.createCollisionShape(pyb.GEOM_BOX, halfExtents=base_dim)
+    visualBox = client_obj.createVisualShape(pyb.GEOM_BOX, halfExtents=base_dim, rgbaColor=rbga_wood)
+    all_obstacles.append(client_obj.createMultiBody(
             baseMass=0,
             baseCollisionShapeIndex=geomBox,
             baseVisualShapeIndex=visualBox,
@@ -175,7 +175,9 @@ if __name__=="__main__":
     all_obstacles = generate_scene(p)
     seq = [
         [['s', 't'], ['fs', 's']], 
-        [['t', 's'], ['s', 'fs']]
+        [['t', 's'], ['s', 'fs']],
+        [['t', 's'], ['fs', 's']],
+        [['s', 't'], ['s', 'fs']]
     ]
 
     space = ob.RealVectorStateSpace(14)
@@ -196,13 +198,14 @@ if __name__=="__main__":
         robotID_2=(robotid2[0], robotid2[1]),
         obstacles=all_obstacles
     )
+    si.setStateValidityChecker(validity_checker_obj)
     
     while cur_path<args.num_paths:
         start_n_goal = None
         # Set up planning for the robots.
         while start_n_goal is None:
             # Randomly choose one of the sequence.
-            start_n_goal = get_start_n_goal(robotid1, robotid2, all_obstacles, seq[np.random.randint(0, 2)])
+            start_n_goal = get_start_n_goal(robotid1, robotid2, all_obstacles, seq[np.random.randint(0, 4)])
 
         # Plan for the given start and goal states.
         start_state = e14d.get_ompl_state(space, start_n_goal[0])
