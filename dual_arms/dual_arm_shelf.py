@@ -13,6 +13,8 @@ import numpy as np
 from ompl import base as ob
 from ompl import geometric as og
 
+import argparse
+
 import panda_utils as pdu
 import dual_arm_utils as dau
 import dual_arm_exp as dae
