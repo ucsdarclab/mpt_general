@@ -49,12 +49,12 @@ def try_target_location(
         pdu.set_position(robotID, jointsID, random_joint_pose)
         set_joint_pose = np.array(pse.set_IK_position(client_obj, robotID, jointsID, bp, bo))[:7]
         if pse.check_self_collision(robotID) or pdu.get_distance(obstacles, robotID)<=0 or (not pse.check_bounds(set_joint_pose)):
-            if pse.check_self_collision(robotID):
-                print("Robot is in collision with itself!!")
-            if not pse.check_bounds(set_joint_pose):
-                print("Joints out of bounds")
-            if pdu.get_distance(obstacles, robotID)<=0:
-                print("Robot is in collision with obstacles.")
+            # if pse.check_self_collision(robotID):
+            #     # print("Robot is in collision with itself!!")
+            # if not pse.check_bounds(set_joint_pose):
+            #     print("Joints out of bounds")
+            # if pdu.get_distance(obstacles, robotID)<=0:
+            #     print("Robot is in collision with obstacles.")
             return False, set_joint_pose
     return True, set_joint_pose
 
@@ -133,7 +133,7 @@ def get_start_n_goal(robotid1, robotid2, obstacles, seq):
         while not success1 and count<10:
             success1, set_joint_pose = try_target_location(p, robotid1[0], robotid1[1], obstacles, bp_robot_1, robot1_pose['o'])
             count += 1
-        print(pse.get_robot_end_effector_pose(p, robotid1[0]))
+        # print(pse.get_robot_end_effector_pose(p, robotid1[0]))
 
         # Robot 2 - start and goal.
         robot2_pose = ee_poses[seq[1][i]]
@@ -143,7 +143,7 @@ def get_start_n_goal(robotid1, robotid2, obstacles, seq):
         while not success2 and count<15:
             success2, set_joint_pose_2 = try_target_location(p, robotid2[0], robotid2[1], obstacles, bp=bp_pose_2, bo=robot2_pose['o'])
             count += 1
-        print(pse.get_robot_end_effector_pose(p, robotid2[0]))
+        # print(pse.get_robot_end_effector_pose(p, robotid2[0]))
         if not (success1 and success2):
             return None
         start_goal_pose.append(np.r_[pse.get_joint_position(robotid1[0], robotid1[1]), pse.get_joint_position(robotid2[0], robotid2[1])])
