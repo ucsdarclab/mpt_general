@@ -14,6 +14,7 @@ from ompl import base as ob
 from ompl import geometric as og
 
 import argparse
+from os import path as osp
 
 import panda_utils as pdu
 import dual_arm_utils as dau
