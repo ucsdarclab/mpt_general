@@ -21,7 +21,7 @@ from modules.decoder import DecoderPreNorm, DecoderPreNormGeneral
 from modules.encoder import EncoderPreNorm
 from modules.optim import ScheduledOptim
 
-from data_loader import PathManipulationDataLoader, get_padded_sequence, PathBiManipulationDataLoader
+from data_loader import PathManipulationDataLoader, get_padded_sequence, PathBiManipulationDataLoader, PathManipulationFetchDataLoader
 
 from toolz.itertoolz import partition
 import argparse
@@ -225,6 +225,22 @@ def main(args):
             data_folder=osp.join(data_folder, 'val'),
             env_list=list(range(2000, 2500))
             )
+    elif args.robot=='7D':
+        import fetch_utils as fu
+        # Add the data loader.
+        train_dataset = PathManipulationFetchDataLoader(
+            data_folder=osp.join(data_folder, 'train'),
+            env_list=list(range(1)),
+            q_min = fu.q_min,
+            q_max = fu.q_max
+            )
+
+        eval_dataset = PathManipulationFetchDataLoader(
+            data_folder=osp.join(data_folder, 'val'),
+            env_list=list(range(1)),
+            q_min = fu.q_min,
+            q_max = fu.q_max
+            )        
     elif args.robot=='14D':
         # Add the data loader.
         train_dataset = PathBiManipulationDataLoader(
@@ -308,7 +324,7 @@ if __name__ == "__main__":
     parser.add_argument('--c_space_dim', help="Dimension of the state space", type=int)
     parser.add_argument('--num_keys', help="Number of dictionary keys", type=int)
     parser.add_argument('--data_dir', help="Directory where training data is stored")
-    parser.add_argument('--robot', help="Choose the robot model to train", choices=['2D', '6D', '14D'])
+    parser.add_argument('--robot', help="Choose the robot model to train", choices=['2D', '6D', '14D', '7D'])
 
     args = parser.parse_args()
 
