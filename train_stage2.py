@@ -157,6 +157,20 @@ def main(args):
         d_inner=1024,
         dropout=0.1
         )
+    
+    if args.robot =='7D':
+        env_params = dict(d_model=d_model)
+
+        context_params = dict(
+        d_context=7,
+        n_layers=3,
+        n_heads=3, 
+        d_k=512,
+        d_v=256, 
+        d_model=d_model, 
+        d_inner=1024,
+        dropout=0.1
+        )
 
     if args.robot == '14D':
         env_params = dict(d_model=d_model)
@@ -237,26 +251,30 @@ def main(args):
                 quantizer_model, 
                 list(range(1000)),
                 '/root/data/panda_shelf/train',
-                osp.join(dictionary_model_folder, 'quant_key/panda_shelf/train/')            
+                osp.join(dictionary_model_folder, 'quant_key/panda_shelf/train/'),
+                robot=args.robot
             )
             val_dataset = QuantManipulationDataLoader(
                 quantizer_model,
                 list(range(2000, 2500)),
                 '/root/data/panda_shelf/val',
-                osp.join(dictionary_model_folder, 'quant_key/panda_shelf/val')
+                osp.join(dictionary_model_folder, 'quant_key/panda_shelf/val'),
+                robot=args.robot
             )
         else:
             train_dataset = QuantManipulationDataLoader(
                 quantizer_model, 
                 list(range(1000)),
                 '/root/data/pandav3/train/',
-                osp.join(dictionary_model_folder, 'quant_key/pandav3/train/')
+                osp.join(dictionary_model_folder, 'quant_key/pandav3/train/'),
+                robot=args.robot
             )
             val_dataset = QuantManipulationDataLoader(
                 quantizer_model,
                 list(range(2000, 2500)),
                 '/root/data/pandav3/val',
-                osp.join(dictionary_model_folder, 'quant_key/pandav3/val')
+                osp.join(dictionary_model_folder, 'quant_key/pandav3/val'),
+                robot=args.robot
             )
         
         train_data_loader = DataLoader(train_dataset, num_workers=15, batch_size=batch_size, collate_fn=get_quant_manipulation_sequence)
@@ -267,6 +285,7 @@ def main(args):
             list(range(1, 2000)),
             '/root/data/bi_panda/train',
             osp.join(dictionary_model_folder, 'quant_key/train'),
+            robot=args.robot,
             dual_arm=True
         )
         val_dataset = QuantManipulationDataLoader(
@@ -274,11 +293,29 @@ def main(args):
             list(range(2001, 2500)),
             '/root/data/bi_panda/val',
             osp.join(dictionary_model_folder, 'quant_key/val'),
+            robot=args.robot,
             dual_arm=True
         )
         train_data_loader = DataLoader(train_dataset, num_workers=15, batch_size=batch_size, collate_fn=get_quant_manipulation_sequence)
         val_data_loader = DataLoader(val_dataset, num_workers=10, batch_size=batch_size, collate_fn=get_quant_manipulation_sequence)
 
+    if args.robot == '7D':
+        train_dataset = QuantManipulationDataLoader(
+            quantizer_model,
+            list(range(1, 1000)),
+            '/root/data/fetch/train',
+            osp.join(dictionary_model_folder, 'quant_key/train'),
+            robot=args.robot
+        )
+        val_dataset = QuantManipulationDataLoader(
+            quantizer_model,
+            list(range(2000, 2500)),
+            '/root/data/fetch/val',
+            osp.join(dictionary_model_folder, 'quant_key/val'),
+            robot=args.robot
+        )
+        train_data_loader = DataLoader(train_dataset, num_workers=15, batch_size=batch_size, collate_fn=get_quant_manipulation_sequence)
+        val_data_loader = DataLoader(val_dataset, num_workers=10, batch_size=batch_size, collate_fn=get_quant_manipulation_sequence)
     writer = SummaryWriter(log_dir=train_model_folder)
     best_eval_loss = None
     start_epoch = 0
@@ -332,7 +369,7 @@ if __name__ == "__main__":
     parser.add_argument('--log_dir', help="Directory to save data related to training")
     parser.add_argument('--batch_size', help="Number of trajectories to load in each batch", type=int)
     parser.add_argument('--cont', help="Continue training the model", action='store_true')
-    parser.add_argument('--robot', help="Choose the robot model to train", choices=['2D', '6D', '14D'])
+    parser.add_argument('--robot', help="Choose the robot model to train", choices=['2D', '6D', '7D', '14D'])
     parser.add_argument('--shelf', help="If true, train for shelf environment", action='store_true')
 
     args = parser.parse_args()
