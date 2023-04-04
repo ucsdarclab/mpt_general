@@ -153,7 +153,7 @@ if __name__ == "__main__":
     parser.add_argument('--path_num', help="path number to test", type=int)
 
     args = parser.parse_args()
-
+    # ======================== Model loading :START ========================================
     # Define the models
     d_model = 512
     #TODO: Get the number of keys from the saved data
@@ -202,23 +202,26 @@ if __name__ == "__main__":
         model.load_state_dict(checkpoint[state_dict])
         model.eval()
         model.to(device)
-
+    # ======================== Model loading :END ========================================
+    # ======================== Data loading : START ======================================
     env_num = args.env_num
     path_num = args.path_num
     val_data_folder = args.val_data_folder
 
     map_file = osp.join(val_data_folder, f'env_{env_num:06d}/map_{env_num}.ply')
     data_PC = o3d.io.read_point_cloud(map_file, format='ply')
-    depth_points = np.array(data_PC.points)
+    depth_points = np.array(data_PC.points) # <- Put point cloud data here.
     map_data = tg_data.Data(pos=torch.as_tensor(depth_points, dtype=torch.float, device=device))
 
     path_file = osp.join(val_data_folder, f'env_{env_num:06d}/path_{path_num}.p')
     data = pickle.load(open(path_file, 'rb'), encoding='latin1')
     # Normalize path
-    tmp = (data['path']+np.pi)%(2*np.pi)
+    tmp = (data['path']+np.pi)%(2*np.pi) # <- Give the start and goal points here 
     tmp[tmp<0] = tmp[tmp<0] + 2*np.pi
     tmp[tmp>0] = tmp[tmp>0] - np.pi
     path = (tmp-fu.q_min)/(fu.q_max-fu.q_min)
-
+    # ======================== Data loading : END ======================================
+    # ========================= INFERENCE : START ========================================
     # Generate search distribution
     search_dist_mu, search_dist_sigma, _ = get_search_dist(path, map_data, context_env_encoder, decoder_model, ar_model, quantizer_model, num_keys)
+    # ========================= INFERENCE : END ========================================
