@@ -70,7 +70,7 @@ class EnvContextCrossAttModel(nn.Module):
         if robot == '2D':
             self.env_encoder = EnvEncoder(**env_params)
 
-        if robot == '6D' or robot=='14D':
+        if robot == '6D' or robot=='14D' or robot=='7D':
             self.env_encoder = FeatureExtractor(**env_params)
 
         self.robot = robot
@@ -86,7 +86,7 @@ class EnvContextCrossAttModel(nn.Module):
             cross_encoding_output, = self.context_encoder(
                 start_goal_input, env_encoding_output)
 
-        if self.robot == '6D' or self.robot=='14D':
+        if self.robot == '6D' or self.robot=='14D' or self.robot=='7D':
             (h, _, batch), _ = self.env_encoder(env_input)
             env_encoding_output, dec_mask = tg_utils.to_dense_batch(h, batch)
             # Take the cross attention model
