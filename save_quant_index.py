@@ -13,6 +13,7 @@ import os
 from os import path as osp
 from tqdm import tqdm
 
+import fetch_utils as fu
 import argparse
 
 from data_loader import q_max, q_min
@@ -37,7 +38,7 @@ if __name__ == "__main__":
         '--env_type', help='train or val dataset', choices=['train', 'val']
     )
     parser.add_argument(
-        '--robot', help='type of robot', choices=['2D', '6D', '14D']
+        '--robot', help='type of robot', choices=['2D', '6D', '7D', '14D']
     )
     parser.add_argument(
         '--num_keys', help="Number of dictionary elements", type=int
@@ -49,6 +50,8 @@ if __name__ == "__main__":
         c_space_dim=2
     if args.robot=='6D':
         c_space_dim=6
+    if args.robot=='7D':
+        c_space_dim=7
     if args.robot=='14D':
         c_space_dim=14
 
@@ -95,13 +98,22 @@ if __name__ == "__main__":
         path_list = [p for p in os.listdir(env_dir) if p[-2:] == '.p']
         for path_file in path_list:
             with open(osp.join(env_dir, path_file), 'rb') as f:
-                data = pickle.load(f)
-            
+                data = pickle.load(f, encoding='latin1')
+            # If success key is not found in data, implies the trajectory
+            # was successfull.
+            if  'success' not in data.keys():
+                data['success'] = True
             if data['success']:
                 if args.robot=='2D':
                     path_norm = data['path_interpolated']/24
                 if args.robot=='6D':
                     path_norm = ((data['jointPath']-q_min)/(q_max-q_min))[:, :6]
+                if args.robot=='7D':
+                    joint_path = data['path']
+                    tmp = (joint_path+np.pi)%(2*np.pi)
+                    tmp[tmp<0] = tmp[tmp<0] + 2*np.pi
+                    tmp[tmp>0] = tmp[tmp>0] - np.pi
+                    path_norm = (tmp-fu.q_min)/(fu.q_max-fu.q_min)
                 if args.robot=='14D':
                     q_bi_max = np.c_[q_max, q_max]
                     q_bi_min = np.c_[q_min, q_min]
