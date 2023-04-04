@@ -18,6 +18,7 @@ from os import path as osp
 import torch_geometric.data as tg_data
 
 from panda_utils import q_max, q_min
+import fetch_utils as fu
 
 
 class PathBiManipulationDataLoader(Dataset):
@@ -95,6 +96,48 @@ class PathManipulationDataLoader(Dataset):
         q = (joint_path-q_min)/(q_max-q_min)
         return {'path': torch.as_tensor(q[:, :6])}
 
+class PathManipulationFetchDataLoader(Dataset):
+    ''' Loads each path for the maniuplation data.
+    '''
+
+    def __init__(self, data_folder, env_list, q_min, q_max):
+        '''
+        :param data_folder: location of where file exists. 
+        '''
+        self.data_folder = data_folder
+        self.index_dict = [(envNum, int(re.findall('[0-9]+', filei)[0]))
+                           for envNum in env_list
+                           for filei in os.listdir(osp.join(data_folder, f'env_{envNum:06d}'))
+                           if filei.endswith('.p')
+                           ]
+        self.q_min = q_min
+        self.q_max = q_max
+
+    def __len__(self):
+        ''' Returns the length of the dataset.
+        '''
+        return len(self.index_dict)
+
+    def __getitem__(self, index):
+        '''Gets the data item from a particular index.
+        :param index: Index from which to extract the data.
+        :returns: A dictionary with path.
+        '''
+        envNum, pathNum = self.index_dict[index]
+        envFolder = osp.join(self.data_folder, f'env_{envNum:06d}')
+
+        #  Load the path
+        with open(osp.join(envFolder, f'path_{pathNum}.p'), 'rb') as f:
+            data_path = pickle.load(f, encoding='latin1')
+            joint_path = data_path['path']
+        # Make sure all angles r b/w -np.pi and np.pi
+        tmp = (joint_path+np.pi)%(2*np.pi)
+        tmp[tmp<0] = tmp[tmp<0] + 2*np.pi
+        tmp[tmp>0] = tmp[tmp>0] - np.pi
+        # Normalize the trajectory.
+        q = (tmp-self.q_min)/(self.q_max-self.q_min)
+        return {'path': torch.as_tensor(q)}
+
 
 def get_quant_manipulation_sequence(batch):
     '''
@@ -125,7 +168,9 @@ class QuantManipulationDataLoader(Dataset):
                  env_list,
                  map_data_folder,
                  quant_data_folder,
-                 dual_arm=False):
+                 robot,
+                 dual_arm=False
+                 ):
         '''
         :param quantizer_model: The quantizer model to use.
         :param env_list: List of environments to use for training.
@@ -151,14 +196,18 @@ class QuantManipulationDataLoader(Dataset):
         self.start_index = total_num_embedding
         self.goal_index = total_num_embedding + 1
         self.dual_arm = dual_arm
-        if dual_arm:
+        if robot == '14D':
             self.path_index = 'path'
             self.q_b_max = np.c_[q_max, q_max]
             self.q_b_min = np.c_[q_min, q_min]
-        else:
+        elif robot=='6D':
             self.path_index = 'jointPath'
             self.q_b_max = q_max
             self.q_b_min = q_min
+        elif robot=='7D':
+            self.path_index = 'path'
+            self.q_b_max = fu.q_max
+            self.q_b_min = fu.q_min
 
     def __len__(self):
         ''' Return the length of the dataset.
@@ -179,17 +228,23 @@ class QuantManipulationDataLoader(Dataset):
 
         # Load start and goal states.
         with open(osp.join(data_folder, f'path_{path_num}.p'), 'rb') as f:
-            data_path = pickle.load(f)
+            data_path = pickle.load(f, encoding='latin1')
             joint_path = data_path[self.path_index]
+            # ========== For fetch ===============
+            tmp = (joint_path+np.pi)%(2*np.pi)
+            tmp[tmp<0] = tmp[tmp<0] + 2*np.pi
+            tmp[tmp>0] = tmp[tmp>0] - np.pi
+            # ====================================
             # flip array if index is odd.
             if index%2==1:
                 joint_path = joint_path[::-1]
         
-        # Normalize the trajectory.
-        if self.dual_arm:
-            start_n_goal = ((joint_path-self.q_b_min)/(self.q_b_max-self.q_b_min))[[0, -1], :]
-        else:
-            start_n_goal = ((joint_path-self.q_b_min)/(self.q_b_max-self.q_b_min))[[0, -1], :6]
+        # # Normalize the trajectory.
+        # if self.dual_arm:
+        #     start_n_goal = ((joint_path-self.q_b_min)/(self.q_b_max-self.q_b_min))[[0, -1], :]
+        # else:
+        #     start_n_goal = ((joint_path-self.q_b_min)/(self.q_b_max-self.q_b_min))[[0, -1], :6]
+        start_n_goal = ((joint_path-self.q_b_min)/(self.q_b_max-self.q_b_min))[[0, -1], :]
 
         # Load the quant-data
         with open(osp.join(self.quant_data_folder, f'env_{env_num:06d}', f'path_{path_num}.p'), 'rb') as f:
