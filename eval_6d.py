@@ -160,7 +160,10 @@ def get_path(start, goal, env_num, dist_mu=None, dist_sigma=None, cost=None, pla
         planner = og.InformedRRTstar(si)
     elif planner_type=='bitstar':
         planner = og.BITstar(si)
-        planner.setSamplesPerBatch(100)
+        planner.setSamplesPerBatch(500)
+        planner.setPruneThresholdFraction(0.01)
+        planner.setUseKNearest(False)
+        # print(f"Samplers Per Batch: {planner.getSamplesPerBatch()}")
     elif planner_type=='fmtstar':
         planner = og.FMT(si)
     elif planner_type=='rrtconnect':
