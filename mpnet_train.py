@@ -11,7 +11,7 @@ import argparse
 from torch.utils.tensorboard import SummaryWriter
 
 from mpnet_models import MLP, Encoder
-from data_loader import MPNetDataLoader, get_mpnet_padded_seq
+from data_loader import MPNetDataLoader, MPNet14DDataLoader, get_mpnet_padded_seq
 
 
 def train_epoch(train_dataset, encoder, mlp, criterion, optimizer, device):
@@ -85,7 +85,9 @@ if __name__ == "__main__":
     parser.add_argument('--enc_input_size', type=int, default=16053)
     parser.add_argument('--enc_output_size', type=int, default=60)
     parser.add_argument('--mlp_output_size', type=int, default=7)
-    
+    parser.add_argument('--robot', help="Choose the robot model to train", choices=['6D', '14D'])
+    parser.add_argument('--cont', help="Continue training the model", action='store_true')
+
     args = parser.parse_args()
 
     # Define the models.
@@ -100,16 +102,28 @@ if __name__ == "__main__":
     params = list(encoder.parameters())+list(mlp.parameters())
     optimizer = torch.optim.Adagrad(params, lr=args.learning_rate)
 
-    # Create dataset objects.
-    train_dataset = MPNetDataLoader('/root/data/pandav3/train', list(range(2000)), args.enc_input_size//3)
-    val_dataset = MPNetDataLoader('/root/data/pandav3/val', list(range(2000, 2500)), args.enc_input_size//3)
+    if args.robot=='6D':
+        # Create dataset objects.
+        train_dataset = MPNetDataLoader('/root/data/pandav3/train', list(range(2000)), args.enc_input_size//3)
+        val_dataset = MPNetDataLoader('/root/data/pandav3/val', list(range(2000, 2500)), args.enc_input_size//3)
+    elif args.robot=='14D':
+        train_dataset = MPNet14DDataLoader('/root/data/bi_panda/train', list(range(1, 2000)), args.enc_input_size//3)
+        val_dataset = MPNet14DDataLoader('/root/data/bi_panda/val', list(range(2001, 2500)), args.enc_input_size//3)
 
     # Writing data loader
     train_dataloader = DataLoader(train_dataset, collate_fn=get_mpnet_padded_seq, num_workers=10, shuffle=True, batch_size=args.batch_size)
     val_dataloader = DataLoader(val_dataset, num_workers=5, collate_fn=get_mpnet_padded_seq, shuffle=True, batch_size=args.batch_size)
 
     writer = SummaryWriter(log_dir=args.log_dir)
-    for epoch_i in range(args.num_epochs):
+    start_epoch = 0
+    if args.cont:
+        checkpoint = torch.load(osp.join(args.log_dir, 'model_99.pkl'))
+        mlp.load_state_dict(checkpoint['mlp_state'])
+        encoder.load_state_dict(checkpoint['encoder_state'])
+        optimizer.load_state_dict(checkpoint['optimizer'])
+        start_epoch = checkpoint['epoch']
+
+    for epoch_i in range(start_epoch+1, args.num_epochs):
 
         # Train the model for a single epoch.
         print(f"epoch {epoch_i}")
