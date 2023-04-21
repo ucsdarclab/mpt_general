@@ -18,6 +18,8 @@ except ImportError:
     raise "Run code from a container with OMPL installed"
 
 from panda_utils import q_min, q_max
+import panda_utils as pdu
+import panda_shelf_env as pse
 from mpnet_models import MLP, Encoder
 from ompl_utils import get_numpy_state, get_ompl_state
 from panda_utils import set_env, get_pybullet_server
@@ -145,12 +147,13 @@ def get_path_segment(start, goal, space, validity_checker_obj, plan_time=2):
     else:
         path = [start, goal]
 
-    return path, success
+    return path, numVertices, success
 
 
 def get_mpnet_path(q, mlp_model, h, p, env_num):
     '''
     '''
+    total_vertices = 0
     success = False
     # Planning parameters
     space = ob.RealVectorStateSpace(7)
@@ -161,11 +164,20 @@ def get_mpnet_path(q, mlp_model, h, p, env_num):
         bounds.setLow(i, q_min[0, i])
     space.setBounds(bounds)
 
+    # Random Env
     validity_checker_obj = set_env(p, space, 6, 6, seed=env_num)
+    # Shelf Env
+    # si = ob.SpaceInformation(space)
+    # pdu.set_simulation_env(p)
+    # pandaID, jointsID, _ = pdu.set_robot(p)
+    # all_obstacles = pse.place_shelf_and_obstacles(p, seed=env_num) 
+    # validity_checker_obj = pdu.ValidityCheckerDistance(si, all_obstacles, pandaID, jointsID)
 
     # Try connecting the ends
     for _ in range(10):
         pred_traj, success = get_predict_points(q[0, :6], q[-1, :6], h, mlp_model, space, validity_checker_obj, 6)
+        # Add vertices, but subtract the start and goal position.
+        total_vertices +=pred_traj.shape[0]-2
     #     pred_f_traj, pred_r_traj, success = get_predict_points(q_tensor[0, :6], q_tensor[-1, :6], h, mlp_model, space, validity_checker_obj, 6)
         if success:
             break
@@ -178,7 +190,8 @@ def get_mpnet_path(q, mlp_model, h, p, env_num):
             if not valid_local_traj(local_traj, space, validity_checker_obj):
                 local_success = False
                 print("Invalid Path")
-                path_segment, local_success = get_path_segment(pred_traj[i], pred_traj[i+1], space, validity_checker_obj, 5)
+                path_segment, local_vertices, local_success = get_path_segment(pred_traj[i], pred_traj[i+1], space, validity_checker_obj, 5)
+                total_vertices +=local_vertices
                 if not local_success:
                     success = False
                     print("No path found")
@@ -188,8 +201,12 @@ def get_mpnet_path(q, mlp_model, h, p, env_num):
             else:
                 final_traj.append(pred_traj[i])
         final_traj.append(pred_traj[-1])
-        return np.array(final_traj), success
-    return None, success
+        # return np.array(final_traj), total_vertices, success
+    # If no path can be constructed, try RRT
+    if not success:
+        final_traj, cur_vertices, success = get_path_segment(pred_traj[0], pred_traj[i+1], space, validity_checker_obj, 100)
+        total_vertices += cur_vertices
+    return final_traj, total_vertices, success
 
 def main(args):
     ''' pass arguments 
@@ -243,14 +260,14 @@ def main(args):
             h = encoder_model(pc_data)
 
             # Get path
-            pred_traj, success = get_mpnet_path(q, mlp_model, h, p, env_num)
+            pred_traj, total_vertices, success = get_mpnet_path(q, mlp_model, h, p, env_num)
             plan_time = time.time()-start_time
 
             pathSuccess.append(success)
             pathTime.append(plan_time)
             if pred_traj is not None:
                 pathPlanned.append(pred_traj)
-                pathVertices.append(pred_traj.shape[0])
+                pathVertices.append(total_vertices)
             else:
                 pathPlanned.append(np.array(data['jointPath'][[0, -1]]))
                 pathVertices.append(0.0)
