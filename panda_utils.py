@@ -30,12 +30,6 @@ def set_robot(client_obj, base_pose = np.array([0]*3), base_orientation=np.array
     :param base_orientation: the base orientation of the panda arm in (yaw, pitch, roll)
     '''
     base_ori_quat = pyb.getQuaternionFromEuler(base_orientation)
-    # panda = client_obj.loadURDF(
-    #     "franka_panda/panda.urdf", 
-    #     basePosition=base_pose, 
-    #     baseOrientation=base_ori_quat,
-    #     flags=pyb.URDF_ENABLE_CACHED_GRAPHICS_SHAPES
-    # )
     panda = client_obj.loadURDF(
         "franka_panda/panda.urdf", 
         basePosition=base_pose, 
@@ -52,7 +46,7 @@ def set_robot(client_obj, base_pose = np.array([0]*3), base_orientation=np.array
     return panda, joints, finger
 
 # Spawn robot for visualization purposes only.
-def set_robot_vis(client_obj, pose, rgbaColor):
+def set_robot_vis(client_obj, rgbaColor=None, base_pose = np.array([0]*3), base_orientation=np.array([0.0]*3)):
     '''
     Spawn a new robot at the proposed pose, and set its transparency to the set value.
     :param client_obj: A pybullet_utils.BulletClient object.
@@ -60,18 +54,24 @@ def set_robot_vis(client_obj, pose, rgbaColor):
     :param rgbaColor: Color of the robot.
     '''
     # Spawn the robot.
-    pandaVis = client_obj.loadURDF("franka_panda/panda.urdf", np.array([0, 0, 0]), flags=pyb.URDF_USE_SELF_COLLISION)
+    base_ori_quat = pyb.getQuaternionFromEuler(base_orientation)
+    pandaVis = client_obj.loadURDF(
+        "franka_panda/panda.urdf", 
+        basePosition=base_pose,
+        baseOrientation=base_ori_quat,
+        flags=pyb.URDF_ENABLE_CACHED_GRAPHICS_SHAPES
+    )
     # Get the joint info
     numLinkJoints = pyb.getNumJoints(pandaVis)
     jointInfo = [pyb.getJointInfo(pandaVis, i) for i in range(numLinkJoints)]
     # Joint nums
     jointsVis = [j[0] for j in jointInfo if j[2]==pyb.JOINT_REVOLUTE]
     # Set the robot to a particular pose.
-    set_position(pandaVis, jointsVis, pose)
+    set_position(pandaVis, jointsVis, base_pose)
     # Change the color of the robot.
     for j in range(numLinkJoints):
         client_obj.changeVisualShape(pandaVis, j, rgbaColor=rgbaColor)
-    return pandaVis
+    return pandaVis, jointsVis, []
 
     
 def set_simulation_env(client_obj):
