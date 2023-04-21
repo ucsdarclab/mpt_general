@@ -184,11 +184,8 @@ def get_path(start, goal, env_num, dist_mu=None, dist_sigma=None, cost=None, pla
 
     # Attempt to solve the planning problem in the given time
     start_time = time.time()
-    solved = planner.solve(30.0)
+    solved = planner.solve(150.0)
     current_time = 0.0
-    while (not pdef.hasOptimizedSolution() and current_time<300) and not pdef.hasExactSolution():
-        planner.solve(30)
-        current_time = time.time()-start_time
     # if not pdef.hasExactSolution():
     #     # Redo the state sampler
     #     state_sampler = partial(StateSamplerRegion, dist_mu=None, dist_sigma=None, qMin=q_min, qMax=q_max)
