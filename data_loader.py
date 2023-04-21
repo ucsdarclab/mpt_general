@@ -459,10 +459,68 @@ class MPNetDataLoader(Dataset):
             joint_path = data_path['jointPath']
         # Normalize the trajectory.
         q = 2*(joint_path-q_min)/(q_max-q_min) - 1
-        # TODO: set goal position.
+        # set goal position.
         input_pos = np.concatenate([q[:-1, :6], np.ones_like(q[:-1, :6])*q[-1, :6]], axis=1)
         return {
             'input_pos': torch.as_tensor(input_pos, dtype=torch.float), 
             'target_pos': torch.as_tensor(q[1:, :6], dtype=torch.float), 
+            'env': torch.as_tensor(depth_points.reshape(-1), dtype=torch.float)
+        }
+    
+class MPNet14DDataLoader(Dataset):
+    ''' Custom dataset object for training the MPNet model.
+    '''
+
+    def __init__(self, data_folder, env_list, max_point_cloud_size):
+        '''
+        :param data_folder: location of where file exists. 
+        '''
+        self.data_folder = data_folder
+        self.index_dict = []
+        for envNum in env_list:
+            env_dir = osp.join(data_folder, f'env_{envNum:06d}')
+            if not osp.isdir(env_dir):
+                continue
+            for filei in os.listdir(env_dir):
+                if filei.endswith('.p'):
+                    self.index_dict.append((envNum, int(re.findall('[0-9]+', filei)[0])))
+        # Keeping env information fixed.
+        self.max_point_cloud_size = max_point_cloud_size
+        self.q_bi_max = np.c_[q_max, q_max]
+        self.q_bi_min = np.c_[q_min, q_min]
+
+    def __len__(self):
+        ''' Returns the length of the dataset.
+        '''
+        return len(self.index_dict)*2
+
+    def __getitem__(self, index):
+        '''Gets the data item from a particular index.
+        :param index: Index from which to extract the data.
+        :returns: A dictionary with path.
+        '''
+        env_num, path_num = self.index_dict[index//2]
+        envFolder = osp.join(self.data_folder, f'env_{env_num:06d}')
+        
+        # Load the pcd data.
+        env_data_folder = osp.join(self.data_folder, f'env_{env_num:06d}')
+        map_file = osp.join(env_data_folder, f'map_{env_num}.ply')
+        data_PC = o3d.io.read_point_cloud(map_file, format='ply')
+        total_number_points = np.array(data_PC.points).shape[0]
+        ratio = min((1, (self.max_point_cloud_size+1)/total_number_points))
+        down_sample_PC = data_PC.random_down_sample(ratio)
+        # depth_points = np.array(data_PC.points)[:self.max_point_cloud_size, :]
+        depth_points = np.array(down_sample_PC.points)[:self.max_point_cloud_size, :]
+        #  Load the path
+        with open(osp.join(envFolder, f'path_{path_num}.p'), 'rb') as f:
+            data_path = pickle.load(f)
+            joint_path = data_path['path']
+        # Normalize the trajectory.
+        q = 2*(joint_path-self.q_bi_min)/(self.q_bi_max-self.q_bi_min) - 1
+        # set goal position.
+        input_pos = np.concatenate([q[:-1, :], np.ones_like(q[:-1, :])*q[-1, :]], axis=1)
+        return {
+            'input_pos': torch.as_tensor(input_pos, dtype=torch.float), 
+            'target_pos': torch.as_tensor(q[1:, :], dtype=torch.float),
             'env': torch.as_tensor(depth_points.reshape(-1), dtype=torch.float)
         }
