@@ -427,11 +427,11 @@ def main(args):
     predict_seq_time = []
     for env_num in range(start, start+args.samples):
         print(env_num)
-
-        map_file = osp.join(val_data_folder, f'env_{env_num:06d}/map_{env_num}.ply')
-        data_PC = o3d.io.read_point_cloud(map_file, format='ply')
-        depth_points = np.array(data_PC.points)
-        map_data = tg_data.Data(pos=torch.as_tensor(depth_points, dtype=torch.float, device=device))
+        if use_model:
+            map_file = osp.join(val_data_folder, f'env_{env_num:06d}/map_{env_num}.ply')
+            data_PC = o3d.io.read_point_cloud(map_file, format='ply')
+            depth_points = np.array(data_PC.points)
+            map_data = tg_data.Data(pos=torch.as_tensor(depth_points, dtype=torch.float, device=device))
 
         for path_num in range(args.num_paths):
             path_file = osp.join(val_data_folder, f'env_{env_num:06d}/path_{path_num}.p')
