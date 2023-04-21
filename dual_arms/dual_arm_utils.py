@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from ompl import base as ob
 from ompl import geometric as og
 
-from panda_utils import get_pybullet_server, set_robot, q_max, q_min
+from panda_utils import get_pybullet_server, set_robot, q_max, q_min, set_robot_vis
 from panda_utils import set_position
 from panda_utils import check_self_collision
 from panda_utils import get_distance
@@ -45,6 +45,24 @@ def set_dual_robot(clientID):
     return (robot1_ids, robot2_ids)
 
 
+def set_vis_dual_robot(clientID):
+    ''' Sets up the two robot in the given server.
+    :param clientID: a pybullet_utils.BulletClient object.
+    :returns tuple: a tuple w/ 2 objects of (robotID, jointsID, fingerID) for each robot.
+    '''
+    robot1_ids = set_robot_vis(
+        clientID,
+        base_pose=np.array([0.42, 0.0, 0.0]),
+        base_orientation=np.array([0, 0, np.pi/2])
+    )
+
+    robot2_ids = set_robot_vis(
+        clientID,
+        base_pose=np.array([-0.42, 0.0, 0.0]),
+        base_orientation=np.array([0, 0, np.pi/2])
+    )
+    return (robot1_ids, robot2_ids)
+
 def set_dual_robot_vis(client_obj, pose, rgbaColor):
     '''
     Set up dual robots for visualizing purposes.
@@ -53,7 +71,7 @@ def set_dual_robot_vis(client_obj, pose, rgbaColor):
     :param rgbaColor: The color of both robots.
     '''
     # Spawn the robots.
-    robot1_vis_ids, robot2_vis_ids = set_dual_robot(client_obj)
+    robot1_vis_ids, robot2_vis_ids = set_vis_dual_robot(client_obj)
     # Get the joint info
     numLinkJoints = pyb.getNumJoints(robot1_vis_ids[0])
     # Change the color of the robot.
