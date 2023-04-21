@@ -68,7 +68,7 @@ class StateSamplerRegion(ob.StateSampler):
         '''Generates a random sample from the list of points
         '''
         index = 0
-        random_samples = np.random.permutation(self.X.sample()*(self.q_max-q_min)+q_min)
+        random_samples = np.random.permutation(self.X.sample()*(self.q_max-self.q_min)+self.q_min)
         random_samples[:, 6] = 0.0
         # random_samples[:, 6] = 1.9891
 
@@ -76,7 +76,7 @@ class StateSamplerRegion(ob.StateSampler):
             yield random_samples[index, :]
             index += 1
             if index==self.seq_num:
-                random_samples = np.random.permutation(self.X.sample()*(self.q_max-q_min)+q_min)
+                random_samples = np.random.permutation(self.X.sample()*(self.q_max-self.q_min)+self.q_min)
                 random_samples[:, 6] = 0.0
                 # random_samples[:, 6] = 1.9891
                 index = 0
@@ -87,6 +87,8 @@ class StateSamplerRegion(ob.StateSampler):
         '''
         if self.X is None:
             sample_pos = ((self.q_max-self.q_min)*self.U.rvs()+self.q_min)[0]
+            sample_pos[6] = 0.0
+            # sample_pos[6] = 1.9891
         else:
             sample_pos = next(self.get_random_samples())
         for i, val in enumerate(sample_pos):
@@ -211,6 +213,7 @@ def get_path(start, goal, env_num, dist_mu=None, dist_sigma=None, cost=None, pla
             get_numpy_state(pdef.getSolutionPath().getState(i))
             for i in range(pdef.getSolutionPath().getStateCount())
             ]
+        print(f"Path length after path simplification: {pdef.getSolutionPath().length()}")
     else:
         path = [start, goal]
 
@@ -413,6 +416,7 @@ def main(args):
             model.eval()
             model.to(device)
     else:
+        print("Comparing with vq-mpt planners")
         # Load VQ-MPT planned paths, for setting optimization objective.
         with open(osp.join(args.ar_model_folder, f'eval_val_plan_rrt_{2000:06d}.p'), 'rb') as f:
             vq_mpt_data = pickle.load(f)
@@ -447,6 +451,7 @@ def main(args):
                 if use_model:
                     search_dist_mu, search_dist_sigma, patch_time = get_search_dist(path, data['jointPath'], map_data, context_env_encoder, decoder_model, ar_model, quantizer_model, num_keys)
                 else:
+                    print("Not using model, using uniform distribution")
                     search_dist_mu, search_dist_sigma, patch_time = None, None, 0.0
             
                 planned_path, t, v, s = get_path(data['jointPath'][0], data['jointPath'][-1], env_num, search_dist_mu, search_dist_sigma, cost=path_obj, planner_type=args.planner_type)
@@ -468,7 +473,7 @@ def main(args):
     if use_model:
         fileName = osp.join(ar_model_folder, f'eval_val_plan_{args.planner_type}_{start:06d}.p')
     else:
-        fileName = f'/root/data/general_mpt/{args.planner_type}_v2_{start:06d}.p'
+        fileName = f'/root/data/general_mpt/{args.planner_type}_{start:06d}.p'
     pickle.dump(pathData, open(fileName, 'wb'))
 
 
