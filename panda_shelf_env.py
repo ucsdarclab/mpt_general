@@ -314,8 +314,8 @@ def place_shelf(client_obj, base_pose, base_orient):
     # =================== Place cupboard =================================
     # Where to place the desk
     visualShapeId = client_obj.createVisualShape(shapeType=client_obj.GEOM_MESH,
-                                    fileName="assets/cupboard_vhacd.obj",
-                                    rgbaColor=[1, 1, 1, 1],
+                                    fileName="assets/cupboard.obj",
+                                    rgbaColor=[0.54, 0.31, 0.21, 1],
                                     specularColor=[0.4, .4, 0],
                                     )
     collisionShapeId = client_obj.createCollisionShape(shapeType=client_obj.GEOM_MESH,

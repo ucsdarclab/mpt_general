@@ -36,6 +36,7 @@ sys.path.insert(0, osp.abspath(osp.join(osp.curdir, 'dual_arms')))
 
 from collect_data import set_env
 import dual_arm_utils as dau
+import dual_arm_shelf as das
 from modules.quantizers import VectorQuantizer
 from modules.decoder import DecoderPreNorm, DecoderPreNormGeneral
 from modules.encoder import EncoderPreNorm
@@ -43,7 +44,6 @@ from modules.encoder import EncoderPreNorm
 from modules.autoregressive import AutoRegressiveModel, EnvContextCrossAttModel
 
 from panda_utils import get_pybullet_server, q_max, q_min
-from panda_shelf_env import place_shelf
 
 def get_ompl_state(space, state):
     ''' Returns an OMPL state
@@ -156,7 +156,11 @@ def get_path(start, goal, env_num, dist_mu=None, dist_sigma=None, cost=None, pla
     # Env - random objects
 
     si = ob.SpaceInformation(space)
+    # Random Obstacles
     robotid1, robotid2, all_obstacles = set_env(p, env_num)
+    # # Shelf Environment
+    # robotid1, robotid2 = dau.set_dual_robot(p)
+    # all_obstacles = das.generate_scene(p)
     validity_checker_obj = dau.ValidityCheckerDualDistance(
         si,
         robotID_1=(robotid1[0], robotid1[1]),
@@ -180,12 +184,14 @@ def get_path(start, goal, env_num, dist_mu=None, dist_sigma=None, cost=None, pla
 
     if planner_type=='rrtstar':
         planner = og.RRTstar(si)
-        planner.setRange(13)
+        # planner.setRange(0.1)
     elif planner_type=='informedrrtstar':
         planner = og.InformedRRTstar(si)
     elif planner_type=='bitstar':
         planner = og.BITstar(si)
-        planner.setSamplesPerBatch(100)
+        planner.setSamplesPerBatch(500)
+        planner.setPruneThresholdFraction(0.01)
+        planner.setUseKNearest(False)
     elif planner_type=='fmtstar':
         planner = og.FMT(si)
     elif planner_type=='rrtconnect':
@@ -206,25 +212,7 @@ def get_path(start, goal, env_num, dist_mu=None, dist_sigma=None, cost=None, pla
 
     # Attempt to solve the planning problem in the given time
     start_time = time.time()
-    solved = planner.solve(5.0)
-    current_time = 5.0
-    while (not pdef.hasOptimizedSolution() and current_time<250) and not pdef.hasExactSolution():
-        # Only solve for path if there is a solution
-        if pdef.hasExactSolution():
-            # do path simplification
-            path_simplifier = og.PathSimplifier(si)
-            # using try catch here, sometimes path simplification produces
-            # core dumped errors.
-            try:
-                path_simplifier.simplify(pdef.getSolutionPath(), 0.0)
-                print(f"After path simplification, path length: {pdef.getSolutionPath().length()}")
-                if pdef.getSolutionPath().length()<=cost:
-                    break
-            except TypeError:
-                print("Path not able to simplify because no solution found!")
-                pass
-        solved = planner.solve(1)
-        current_time = time.time()-start_time
+    solved = planner.solve(250.0)
     # if not pdef.hasExactSolution():
     #     # Redo the state sampler
     #     state_sampler = partial(StateSamplerRegion, dist_mu=None, dist_sigma=None, qMin=q_min, qMax=q_max)
@@ -400,6 +388,8 @@ def main(args):
     :parma args: An object of type argparse.ArgumentParser().parse_args()
     '''
     use_model = False if args.dict_model_folder is None else True
+    # with open(f'/root/data/general_mpt_bi_panda/{args.planner_type}_{args.start:06d}_old.p', 'rb') as f:
+    #     replan_data = pickle.load(f)
     if use_model:
         print("Using model")
         # ========================= Load trained model ===========================
@@ -465,24 +455,41 @@ def main(args):
     pathVertices = []
     pathPlanned = []
     predict_seq_time = []
+    # # ============================= Replan data ============================
+    # get_length = lambda x: np.linalg.norm(np.diff(x, axis=0), axis=1).sum()
+    # replan_envs_index = [
+    #     (start+i, i) 
+    #     for i in range(args.samples) 
+    #     if replan_data['Time'][i]>299.0 and get_length(vq_mpt_data['Path'][i])>=get_length(replan_data['Path'][i])
+    # ]
+    # print(replan_envs_index)
+    # pathSuccess = replan_data['Success']
+    # pathTime = replan_data['Time']
+    # pathTimeOverhead = replan_data['PlanTime']
+    # pathVertices = replan_data['Vertices']
+    # pathPlanned = replan_data['Path']
+    # predict_seq_time = replan_data['PredictTime']
+    # ======================================================================
     for env_num in range(start, start+args.samples):
+    # for env_num, i in replan_envs_index:
         print(env_num)
+        if use_model:
+            map_file = osp.join(val_data_folder, f'env_{env_num:06d}/map_{env_num}.ply')
+            data_PC = o3d.io.read_point_cloud(map_file, format='ply')
+            depth_points = np.array(data_PC.points)
+            map_data = tg_data.Data(pos=torch.as_tensor(depth_points, dtype=torch.float, device=device))
 
-        map_file = osp.join(val_data_folder, f'env_{env_num:06d}/map_{env_num}.ply')
-        data_PC = o3d.io.read_point_cloud(map_file, format='ply')
-        depth_points = np.array(data_PC.points)
-        map_data = tg_data.Data(pos=torch.as_tensor(depth_points, dtype=torch.float, device=device))
-
-        for path_num in range(args.num_paths):
+        for path_num in range(args.paths_start, args.paths_start+args.num_paths):
             path_file = osp.join(val_data_folder, f'env_{env_num:06d}/path_{path_num}.p')
             data = pickle.load(open(path_file, 'rb'))
             path = (data['path']-q_bi_min)/(q_bi_max-q_bi_min)
             path_obj = np.linalg.norm(np.diff(data['path'], axis=0), axis=1).sum()
             if not use_model:
                 if vq_mpt_data['Success'][env_num-2001]:
-                    path_obj = np.linalg.norm(np.diff(vq_mpt_data['Path'][env_num-2001], axis=0), axis=1).sum()
-                    # Add 0.01 to prevent round off errors
-                    path_obj += 0.01
+                    path_obj = 1.5*np.linalg.norm(np.diff(vq_mpt_data['Path'][env_num-2001], axis=0), axis=1).sum()
+                #     # Add 0.01 to prevent round off errors
+                #     path_obj += 0.01
+                pass
             if data['success']:
                 if use_model:
                     search_dist_mu, search_dist_sigma, patch_time = get_search_dist(path, data['path'], map_data, context_env_encoder, decoder_model, ar_model, quantizer_model, num_keys)
@@ -496,6 +503,13 @@ def main(args):
                 pathTimeOverhead.append(t)
                 pathPlanned.append(np.array(planned_path))
                 predict_seq_time.append(patch_time)
+                # # ===================== Replan ===============================
+                # pathSuccess[i] = s
+                # pathTime[i] = t
+                # pathVertices[i] = v
+                # pathTimeOverhead[i] = t
+                # predict_seq_time[i] = patch_time
+                # pathPlanned[i] = np.array(planned_path)
             else:
                 pathSuccess.append(False)
                 pathTime.append(0)
@@ -508,7 +522,7 @@ def main(args):
     if use_model:
         fileName = osp.join(ar_model_folder, f'eval_val_plan_{args.planner_type}_{start:06d}.p')
     else:
-        fileName = f'/root/data/general_mpt_bi_panda/{args.planner_type}_{start:06d}.p'
+        fileName = f'/root/data/general_mpt_bi_panda/{args.planner_type}_50_{start:06d}.p'
     pickle.dump(pathData, open(fileName, 'wb'))
 
 
@@ -520,6 +534,7 @@ if __name__ == "__main__":
     parser.add_argument('--start', help="Env number to start", type=int)
     parser.add_argument('--samples', help="Number of samples to collect", type=int)
     parser.add_argument('--num_paths', help="Number of paths for each environment", type=int)
+    parser.add_argument('--paths_start', help="Path number to start for each environment", type=int, default=0)
     parser.add_argument('--planner_type', help="Type of planner to use", choices=['rrtstar', 'rrt', 'rrtconnect', 'informedrrtstar', 'fmtstar', 'bitstar'])
 
     args = parser.parse_args()

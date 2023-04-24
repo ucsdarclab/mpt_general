@@ -68,7 +68,7 @@ class StateSamplerRegion(ob.StateSampler):
         '''Generates a random sample from the list of points
         '''
         index = 0
-        random_samples = np.random.permutation(self.X.sample()*(self.q_max-q_min)+q_min)
+        random_samples = np.random.permutation(self.X.sample()*(self.q_max-self.q_min)+self.q_min)
         random_samples[:, 6] = 0.0
         # random_samples[:, 6] = 1.9891
 
@@ -76,7 +76,7 @@ class StateSamplerRegion(ob.StateSampler):
             yield random_samples[index, :]
             index += 1
             if index==self.seq_num:
-                random_samples = np.random.permutation(self.X.sample()*(self.q_max-q_min)+q_min)
+                random_samples = np.random.permutation(self.X.sample()*(self.q_max-self.q_min)+self.q_min)
                 random_samples[:, 6] = 0.0
                 # random_samples[:, 6] = 1.9891
                 index = 0
@@ -87,6 +87,8 @@ class StateSamplerRegion(ob.StateSampler):
         '''
         if self.X is None:
             sample_pos = ((self.q_max-self.q_min)*self.U.rvs()+self.q_min)[0]
+            sample_pos[6] = 0.0
+            # sample_pos[6] = 1.9891
         else:
             sample_pos = next(self.get_random_samples())
         for i, val in enumerate(sample_pos):
@@ -160,7 +162,10 @@ def get_path(start, goal, env_num, dist_mu=None, dist_sigma=None, cost=None, pla
         planner = og.InformedRRTstar(si)
     elif planner_type=='bitstar':
         planner = og.BITstar(si)
-        planner.setSamplesPerBatch(100)
+        planner.setSamplesPerBatch(500)
+        planner.setPruneThresholdFraction(0.01)
+        planner.setUseKNearest(False)
+        # print(f"Samplers Per Batch: {planner.getSamplesPerBatch()}")
     elif planner_type=='fmtstar':
         planner = og.FMT(si)
     elif planner_type=='rrtconnect':
@@ -181,11 +186,8 @@ def get_path(start, goal, env_num, dist_mu=None, dist_sigma=None, cost=None, pla
 
     # Attempt to solve the planning problem in the given time
     start_time = time.time()
-    solved = planner.solve(30.0)
+    solved = planner.solve(150.0)
     current_time = 0.0
-    while (not pdef.hasOptimizedSolution() and current_time<300) and not pdef.hasExactSolution():
-        planner.solve(30)
-        current_time = time.time()-start_time
     # if not pdef.hasExactSolution():
     #     # Redo the state sampler
     #     state_sampler = partial(StateSamplerRegion, dist_mu=None, dist_sigma=None, qMin=q_min, qMax=q_max)
@@ -211,6 +213,7 @@ def get_path(start, goal, env_num, dist_mu=None, dist_sigma=None, cost=None, pla
             get_numpy_state(pdef.getSolutionPath().getState(i))
             for i in range(pdef.getSolutionPath().getStateCount())
             ]
+        print(f"Path length after path simplification: {pdef.getSolutionPath().length()}")
     else:
         path = [start, goal]
 
@@ -413,6 +416,7 @@ def main(args):
             model.eval()
             model.to(device)
     else:
+        print("Comparing with vq-mpt planners")
         # Load VQ-MPT planned paths, for setting optimization objective.
         with open(osp.join(args.ar_model_folder, f'eval_val_plan_rrt_{2000:06d}.p'), 'rb') as f:
             vq_mpt_data = pickle.load(f)
@@ -427,26 +431,27 @@ def main(args):
     predict_seq_time = []
     for env_num in range(start, start+args.samples):
         print(env_num)
-
-        map_file = osp.join(val_data_folder, f'env_{env_num:06d}/map_{env_num}.ply')
-        data_PC = o3d.io.read_point_cloud(map_file, format='ply')
-        depth_points = np.array(data_PC.points)
-        map_data = tg_data.Data(pos=torch.as_tensor(depth_points, dtype=torch.float, device=device))
+        if use_model:
+            map_file = osp.join(val_data_folder, f'env_{env_num:06d}/map_{env_num}.ply')
+            data_PC = o3d.io.read_point_cloud(map_file, format='ply')
+            depth_points = np.array(data_PC.points)
+            map_data = tg_data.Data(pos=torch.as_tensor(depth_points, dtype=torch.float, device=device))
 
         for path_num in range(args.num_paths):
             path_file = osp.join(val_data_folder, f'env_{env_num:06d}/path_{path_num}.p')
             data = pickle.load(open(path_file, 'rb'))
             path = (data['jointPath']-q_min)/(q_max-q_min)
-            path_obj = np.linalg.norm(np.diff(data['jointPath'], axis=0), axis=1).sum()*2
+            path_obj = np.linalg.norm(np.diff(data['jointPath'], axis=0), axis=1).sum()
             if not use_model:
                 if vq_mpt_data['Success'][env_num-2000]:
-                    path_obj = np.linalg.norm(np.diff(vq_mpt_data['Path'][env_num-2000], axis=0), axis=1).sum()
-                    # Add 0.01 to prevent round off errors
-                    path_obj += 0.01
+                    # Plan paths that are within 10% of the given path length.
+                    path_obj = 1.1* np.linalg.norm(np.diff(vq_mpt_data['Path'][env_num-2000], axis=0), axis=1).sum()
+                    # path_obj = 1.5* np.linalg.norm(np.diff(vq_mpt_data['Path'][env_num-2000], axis=0), axis=1).sum()
             if data['success']:
                 if use_model:
                     search_dist_mu, search_dist_sigma, patch_time = get_search_dist(path, data['jointPath'], map_data, context_env_encoder, decoder_model, ar_model, quantizer_model, num_keys)
                 else:
+                    print("Not using model, using uniform distribution")
                     search_dist_mu, search_dist_sigma, patch_time = None, None, 0.0
             
                 planned_path, t, v, s = get_path(data['jointPath'][0], data['jointPath'][-1], env_num, search_dist_mu, search_dist_sigma, cost=path_obj, planner_type=args.planner_type)
@@ -468,7 +473,7 @@ def main(args):
     if use_model:
         fileName = osp.join(ar_model_folder, f'eval_val_plan_{args.planner_type}_{start:06d}.p')
     else:
-        fileName = f'/root/data/general_mpt/{args.planner_type}_v2_{start:06d}.p'
+        fileName = f'/root/data/general_mpt/{args.planner_type}_{start:06d}.p'
     pickle.dump(pathData, open(fileName, 'wb'))
 
 
