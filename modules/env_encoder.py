@@ -151,7 +151,7 @@ class SAModule(nn.Module):
         # NOTE: "Here, we do not really want to add self-loops to the graph as we are operating in
         # bipartite graphs. The real "self-loop" is already added to tgnn.PointConv by the radius call."
         # Ref: https://github.com/pyg-team/pytorch_geometric/issues/2558
-        self.conv = tgnn.PointConv(local_nn = mlp, add_self_loops=False).jittable()
+        self.conv = tgnn.PointNetConv(local_nn = mlp, add_self_loops=False).jittable()
         
     def forward(self, x, pos, batch):
         ''' Forward propogation of the model.
