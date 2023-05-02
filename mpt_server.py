@@ -1,5 +1,10 @@
+#!/usr/bin python3.8
 ''' A script to plan using 7D robot
 '''
+import rospy
+from moveit_msgs.srv import GetSamplingDistributionSequence, GetSamplingDistributionSequenceResponse
+from sensor_msgs.msg import PointCloud2
+from utils import pointcloud2_to_xyz_array
 
 from torch.nn import functional as F
 
@@ -144,75 +149,96 @@ def get_search_dist(normalized_path, map_data, context_encoder, decoder_model, a
     patch_time = time.time()-start_time
     return search_dist_mu, search_dist_sigma, patch_time
 
+class DistributionSequencePredServer:
+    def __init__(self):
+        # ======================== Model loading :START ========================================
+        # Define the models
+        d_model = 512
+        #TODO: Get the number of keys from the saved data
+        self.num_keys = 2048
+        goal_index = self.num_keys + 1
+        self.quantizer_model = VectorQuantizer(n_e=self.num_keys, e_dim=8, latent_dim=d_model)
+
+        # Load quantizer model.
+        dictionary_model_folder = 'fetch_models/stage1'
+        with open(osp.join(dictionary_model_folder, 'model_params.json'), 'r') as f:
+            dictionary_model_params = json.load(f)
+
+        encoder_model = EncoderPreNorm(**dictionary_model_params)
+        self.decoder_model = DecoderPreNormGeneral(
+            e_dim=dictionary_model_params['d_model'], 
+            h_dim=dictionary_model_params['d_inner'], 
+            c_space_dim=dictionary_model_params['c_space_dim']
+        )
+
+        checkpoint = torch.load(osp.join(dictionary_model_folder, 'best_model.pkl'))
+        
+        # Load model parameters and set it to eval
+        for model, state_dict in zip([encoder_model, self.quantizer_model, self.decoder_model], ['encoder_state', 'quantizer_state', 'decoder_state']):
+            model.load_state_dict(checkpoint[state_dict])
+            model.eval()
+            model.to(device)
+
+        # Load the AR model.
+        # NOTE: Save these values as dictionary in the future, and load as json.
+        env_params = {
+            'd_model': dictionary_model_params['d_model'],
+        }
+        ar_model_folder = 'fetch_models/stage2'
+        # Create the environment encoder object.
+        with open(osp.join(ar_model_folder, 'cross_attn.json'), 'r') as f:
+            context_env_encoder_params = json.load(f)
+        self.context_env_encoder = EnvContextCrossAttModel(env_params, context_env_encoder_params, robot='7D')
+        # Create the AR model
+        with open(osp.join(ar_model_folder, 'ar_params.json'), 'r') as f:
+            ar_params = json.load(f)
+        self.ar_model = AutoRegressiveModel(**ar_params)
+
+        # Load the parameters and set the model to eval
+        checkpoint = torch.load(osp.join(ar_model_folder, 'best_model.pkl'))
+        for model, state_dict in zip([self.context_env_encoder, self.ar_model], ['context_state', 'ar_model_state']):
+            model.load_state_dict(checkpoint[state_dict])
+            model.eval()
+            model.to(device)
+        
+        self.server = rospy.Service('distribution_sequence_predict', GetSamplingDistributionSequence, self.handle_request)
+        self.pc_subscriber = rospy.Subscriber("obstacle_point_cloud", PointCloud2, self.point_cloud_callback, queue_size=1)
+
+    def handle_request(self, req):
+        print("receive req")
+        # print(req.start_configuration)
+        # print(req.goal_configuration)
+        # print("pointcloud shape")
+        # print(self.obstacle_pc.shape)
+
+        # set the pointcloud into tensor
+        map_data = tg_data.Data(pos=torch.as_tensor(self.obstacle_pc.shape, dtype=torch.float, device=device))
+        
+        # normalize the start and goal configuration and set them into tensors
+        tmp = (np.array([req.start_configuration, req.goal_configuration])+np.pi)%(2*np.pi)
+        tmp[tmp<0] = tmp[tmp<0] + 2*np.pi
+        tmp[tmp>0] = tmp[tmp>0] - np.pi
+        path = (tmp-fu.q_min)/(fu.q_max-fu.q_min)
+
+        search_dist_mu, search_dist_sigma, _ = get_search_dist(path, map_data, self.context_env_encoder, self.decoder_model, self.ar_model, self.quantizer_model, self.num_keys)
+        print(search_dist_mu)
+        print(search_dist_sigma)
+
+        return GetSamplingDistributionSequenceResponse()
+
+    def point_cloud_callback(self, point_cloud):
+        self.obstacle_pc = pointcloud2_to_xyz_array(point_cloud)
+
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--dict_model_folder', help="Folder where dictionary model is stored")
-    parser.add_argument('--ar_model_folder', help="Folder where AR model is stored")
-    parser.add_argument('--val_data_folder', help="Folder where environment data is stored")
-    parser.add_argument('--env_num', help="The environment to test it on.", type=int)
-    parser.add_argument('--path_num', help="path number to test", type=int)
 
-    args = parser.parse_args()
-    # ======================== Model loading :START ========================================
-    # Define the models
-    d_model = 512
-    #TODO: Get the number of keys from the saved data
-    num_keys = 2048
-    goal_index = num_keys + 1
-    quantizer_model = VectorQuantizer(n_e=num_keys, e_dim=8, latent_dim=d_model)
-
-    # Load quantizer model.
-    dictionary_model_folder = args.dict_model_folder
-    with open(osp.join(dictionary_model_folder, 'model_params.json'), 'r') as f:
-        dictionary_model_params = json.load(f)
-
-    encoder_model = EncoderPreNorm(**dictionary_model_params)
-    decoder_model = DecoderPreNormGeneral(
-        e_dim=dictionary_model_params['d_model'], 
-        h_dim=dictionary_model_params['d_inner'], 
-        c_space_dim=dictionary_model_params['c_space_dim']
-    )
-
-    checkpoint = torch.load(osp.join(dictionary_model_folder, 'best_model.pkl'))
-    
-    # Load model parameters and set it to eval
-    for model, state_dict in zip([encoder_model, quantizer_model, decoder_model], ['encoder_state', 'quantizer_state', 'decoder_state']):
-        model.load_state_dict(checkpoint[state_dict])
-        model.eval()
-        model.to(device)
-
-    # Load the AR model.
-    # NOTE: Save these values as dictionary in the future, and load as json.
-    env_params = {
-        'd_model': dictionary_model_params['d_model'],
-    }
-    ar_model_folder = args.ar_model_folder
-    # Create the environment encoder object.
-    with open(osp.join(ar_model_folder, 'cross_attn.json'), 'r') as f:
-        context_env_encoder_params = json.load(f)
-    context_env_encoder = EnvContextCrossAttModel(env_params, context_env_encoder_params, robot='7D')
-    # Create the AR model
-    with open(osp.join(ar_model_folder, 'ar_params.json'), 'r') as f:
-        ar_params = json.load(f)
-    ar_model = AutoRegressiveModel(**ar_params)
-
-    # Load the parameters and set the model to eval
-    checkpoint = torch.load(osp.join(ar_model_folder, 'best_model.pkl'))
-    for model, state_dict in zip([context_env_encoder, ar_model], ['context_state', 'ar_model_state']):
-        model.load_state_dict(checkpoint[state_dict])
-        model.eval()
-        model.to(device)
     # ======================== Model loading :END ========================================
     # ======================== Data loading : START ======================================
-    env_num = args.env_num
-    path_num = args.path_num
-    val_data_folder = args.val_data_folder
+    '''
 
     map_file = osp.join(val_data_folder, f'env_{env_num:06d}/map_{env_num}.ply')
     data_PC = o3d.io.read_point_cloud(map_file, format='ply')
     depth_points = np.array(data_PC.points) # <- Put point cloud data here.
-    print("depth points shape")
-    print(depth_points.shape)
     map_data = tg_data.Data(pos=torch.as_tensor(depth_points, dtype=torch.float, device=device))
 
     path_file = osp.join(val_data_folder, f'env_{env_num:06d}/path_{path_num}.p')
@@ -229,3 +255,11 @@ if __name__ == "__main__":
     print(search_dist_mu)
     print(search_dist_sigma)
     # ========================= INFERENCE : END ========================================
+    '''
+    rospy.init_node('distribution_sequence_prediction_server', anonymous=True)
+    
+    try:
+        server = DistributionSequencePredServer()
+        rospy.spin()
+    except rospy.ROSInterruptException:
+        pass
