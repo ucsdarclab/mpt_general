@@ -22,6 +22,14 @@ q_min = np.array([-2.8973, -1.7628, -2.8973, -3.0718, -
                  2.8973, -0.0175, -2.8973])[None, :]
 
 
+def get_numpy_state(state):
+    ''' Return the state as a numpy array.
+    :param state: An ob.State from ob.RealVectorStateSpace
+    :return np.array:
+    '''
+    return np.array([state[i] for i in range(7)])
+
+
 # Spawn robot
 def set_robot(client_obj, base_pose = np.array([0]*3), base_orientation=np.array([0.0]*3)):
     ''' Spawn the robot in the environment.
@@ -234,7 +242,10 @@ class ValidityCheckerDistance(ob.StateValidityChecker):
         # Set robot position
         set_position(self.robotID, self.joints, [state[i] for i in range(7)])
         if not check_self_collision(self.robotID):
-            return self.getDistance(state)>0
+            if self.obstacles is not None:
+                return self.getDistance(state)>0
+            else:
+                return True
         return False
 
     def getDistance(self, state):
@@ -293,3 +304,44 @@ def set_env(client_obj, space, num_boxes, num_spheres, seed):
     si = ob.SpaceInformation(space)   
     ValidityCheckerObj = ValidityCheckerDistance(si, obstacles, panda, joints)
     return ValidityCheckerObj
+
+
+def get_path(start_state, goal_state, si, total_time=10):
+    '''
+    Planning path from start to goal.
+    :param start_state: the start state of the robot.
+    :param goal_state: the goal state of the robot.
+    :param si: ompl.base.SpaceInformation object.
+    :returns tuple: A tuple of planned path, interpolated path, and success flag
+    '''
+    success = False
+    # Define the planning problem
+    ss = og.SimpleSetup(si)
+    ss.setStartAndGoalStates(start_state, goal_state)
+
+    # Set up planner
+    planner = og.RRTstar(si)
+    planner.setRange(0.1)
+    ss.setPlanner(planner)
+
+    current_time = 2
+    solved = ss.solve(current_time)
+    while not ss.haveExactSolutionPath() and current_time<total_time:
+        solved = ss.solve(1)
+        current_time += 1
+        
+    if ss.haveExactSolutionPath():
+        # Save the trajectory
+        print("Found solution")
+        success = True
+        ss.simplifySolution()
+        path = [get_numpy_state(ss.getSolutionPath().getState(i))
+            for i in range(ss.getSolutionPath().getStateCount())
+        ]
+        ss.getSolutionPath().interpolate()
+        path_interpolated = [get_numpy_state(ss.getSolutionPath().getState(i))
+            for i in range(ss.getSolutionPath().getStateCount())
+        ]
+        return path, path_interpolated, success
+    
+    return [], [], success
