@@ -280,14 +280,14 @@ def main(args):
     if args.robot == '7D':
         train_dataset = QuantManipulationDataLoader(
             quantizer_model, 
-            list(range(1, 11)),
+            list(range(1, 2001)),
             '/root/data/pandav4/train/',
             osp.join(dictionary_model_folder, 'quant_key/train/'),
             robot=args.robot
         )
         val_dataset = QuantManipulationDataLoader(
             quantizer_model,
-            list(range(2001, 2010)),
+            list(range(2001, 2501)),
             '/root/data/pandav4/val',
             osp.join(dictionary_model_folder, 'quant_key/val'),
             robot=args.robot
