@@ -37,7 +37,7 @@ def try_target_location(client_obj, robotID, jointsID,  obstacles):
     # Check if the robot is in self-collision/collision w/ obstacles.
     if pu.check_self_collision(robotID) or pu.get_distance(obstacles, robotID)<=0 or (not pse.check_bounds(set_joint_pose)):
         # If so randomize the joints and calculate IK once again.
-        random_joint_pose = (q_min + (q_max - q_min)*np.random.rand(7))[0]
+        random_joint_pose = (pu.q_min + (pu.q_max - pu.q_min)*np.random.rand(7))[0]
         pu.set_position(robotID, jointsID, random_joint_pose)
         set_joint_pose = np.array(pse.set_IK_position(client_obj, robotID, jointsID, random_pose, random_orient))[:7]
         if pu.check_self_collision(robotID) or pu.get_distance(obstacles, robotID)<=0 or (not pse.check_bounds(set_joint_pose)):
