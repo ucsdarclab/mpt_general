@@ -1,4 +1,4 @@
-FROM ompl:focal-1.6-devel AS BUILDER
+FROM ompl:focal-1.6-mod AS BUILDER
 
 # FROM nvidia/cuda:11.1.1-cudnn8-devel-ubuntu20.04 AS BASE
 FROM nvidia/cuda:11.3.0-cudnn8-devel-ubuntu20.04 AS BASE
