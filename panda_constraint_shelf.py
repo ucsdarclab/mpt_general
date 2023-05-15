@@ -53,10 +53,12 @@ def try_start_location(robotID, jointsID, obstacles):
     :param obstacles: pybullet ID of all obstacles.
     :returns bool: True if successful.
     '''
-    random_pose = (q_min + (q_max-q_min)*np.random.rand(7))[0]
-    random_pose[6] = 1.9891
-    set_position(robotID, jointsID, random_pose)
-    if check_self_collision(robotID) or get_distance(obstacles, robotID)<=0:
+    random_pose = (pu.q_min + (pu.q_max-pu.q_min)*np.random.rand(7))[0]
+    pu.set_position(robotID, jointsID, random_pose)
+    link_state = pyb.getLinkState(robotID, 8)
+    random_orient = [np.pi/2, -np.pi/2, 0.0]
+    joint_pose = pse.set_IK_position(p, pandaID, jointsID, link_state[0], random_orient)
+    if pu.check_self_collision(robotID) or pu.get_distance(obstacles, robotID)<=0:
         return False
     return True
 
