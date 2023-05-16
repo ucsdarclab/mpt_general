@@ -136,10 +136,18 @@ if __name__ == "__main__":
             panda, joints, obstacles = set_visual_env(p, 6, 6, seed=env_num)
 
         # obstacles = set_visual_env_no_robot(p, 6, 6, seed=env_num)
-        panda_start_vis = set_robot_vis(p, path[0], [0, 1, 0, 0.6])
-        panda_goal_vis = set_robot_vis(p, path[-1], [1, 0, 0, 0.6])
+        panda_start_ids = set_robot_vis(p, rgbaColor=[0, 1, 0, 0.6])
+        set_position(panda_start_ids[0], panda_start_ids[1], path[0])
+        panda_goal_ids = set_robot_vis(p, rgbaColor=[1, 0, 0, 0.6])
+        set_position(panda_goal_ids[0], panda_goal_ids[1], path[-1])
+
+        panda_constraint_ids = set_robot_vis(p, rgbaColor=[0, 0, 1, 0.6])
+        q = np.array(
+            [ 1.64708058,  0.84508243, -1.568081  ,  2.28519382,  0.91152637,-2.14936872,  1.81196282]
+        )
+        set_position(panda_constraint_ids[0], panda_constraint_ids[1], q)
         alpha = np.linspace(0, 1, step_size)[:, None]
-        time.sleep(10)
+        time.sleep(5)
         for i, _ in enumerate(path[:-1]):
             # Interpolate b/w joints.
             tmp_path = (1-alpha)*path[i] + alpha*path[i+1]
