@@ -80,7 +80,12 @@ if __name__ == "__main__":
     # ================== Ground Truth Data ===============================
     if args.method == 'train':
         if args.shelf:
-            print("Not implemented")
+            # print("Not implemented")
+            with open(f'/root/data/panda_constraint/val/env_{env_num:06d}/path_0.p', 'rb') as f:
+                path_data = pickle.load(f)
+            path = path_data['path_interpolated']
+            success = path_data['success']
+            step_size = 1
         else:
             dataFolder = "/root/data/panda_models/model0/rrtstar"
             index_num = env_num - 2000
