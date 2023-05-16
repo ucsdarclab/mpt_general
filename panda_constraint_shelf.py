@@ -5,6 +5,8 @@ import pybullet as pyb
 import pybullet_data
 import pybullet_utils.bullet_client as bc
 
+import roboticstoolbox as rtb
+
 import numpy as np
 import pickle
 import os
@@ -45,7 +47,7 @@ def try_target_location(client_obj, robotID, jointsID,  obstacles):
     return True, set_joint_pose
 
 
-def try_start_location(robotID, jointsID, obstacles):
+def try_start_location(client_obj, robotID, jointsID, obstacles):
     '''
     Attempts to place robot at random goal location.
     :param robotID: pybullet ID of the robot.
@@ -57,64 +59,76 @@ def try_start_location(robotID, jointsID, obstacles):
     pu.set_position(robotID, jointsID, random_pose)
     link_state = pyb.getLinkState(robotID, 8)
     random_orient = [np.pi/2, -np.pi/2, 0.0]
-    joint_pose = pse.set_IK_position(p, pandaID, jointsID, link_state[0], random_orient)
-    if pu.check_self_collision(robotID) or pu.get_distance(obstacles, robotID)<=0:
+    joint_pose = np.array(pse.set_IK_position(client_obj, robotID, jointsID, link_state[0], random_orient))[:7]
+    if pu.check_self_collision(robotID) or pu.get_distance(obstacles, robotID)<=0 or (not pse.check_bounds(joint_pose)):
         return False
     return True
 
 
-def get_path(start_state, goal_state, space, all_obstacles, pandaID, jointsID):
+# TODO: Write the planner for the constraint function
+def get_constraint_path(start_config, goal_config, goal_ori, space, all_obstacles, pandaID, jointsID):
     '''
     Use a planner to generate a trajectory from start to goal.
     :param start_state:
     :param goal_state:
     :param space:
     '''
-    si = ob.SpaceInformation(space)
-    validity_checker_obj = ValidityCheckerDistance(si, all_obstacles, pandaID, jointsID)
-    si.setStateValidityChecker(validity_checker_obj)
+    tolerance = np.array([0.1, 2*np.pi, 2*np.pi])
+    constraint_function = EndEffectorConstraint(goal_ori, tolerance, pandaID, jointsID)
+
+    # Set up the constraint planning space.
+    css = ob.ProjectedStateSpace(space, constraint_function)
+    csi = ob.ConstrainedSpaceInformation(css)
+
+    ss = og.SimpleSetup(csi)
+    validity_checker = pu.ValidityCheckerDistance(csi, all_obstacles, pandaID, jointsID)
+    ss.setStateValidityChecker(validity_checker)
+
+    # Define the start and goal state
+    start_state = ob.State(csi.getStateSpace())
+    goal_state = ob.State(csi.getStateSpace())
+
+    for i in range(7):
+        start_state[i] = start_config[i]
+        goal_state[i] = goal_config[i]
 
     # Define planning problem
-    pdef = ob.ProblemDefinition(si)
-    pdef.setStartAndGoalStates(start_state, goal_state)
+    ss.setStartAndGoalStates(start_state, goal_state)
 
     # planner = og.RRT(si)
-    planner = og.RRTConnect(si)
-    planner.setProblemDefinition(pdef)
-    planner.setup()
+    planner = og.RRTConnect(csi)
+    ss.setPlanner(planner)
+    ss.setup()
 
     # planner.setRange(1)
-    dt = 0.25
-    totalTime = dt
-    solved = planner.solve(dt)
-    while not pdef.hasExactSolution():
-        solved = planner.solve(dt)
-        totalTime += dt
-        if totalTime>30:
-            break
-    plannerData = ob.PlannerData(si)
+    total_time = 0
+    success = False
+    while not success and total_time<300:
+        solved = ss.solve(30)
+        success = ss.haveExactSolutionPath()
+        total_time += 30
+        
+    plannerData = ob.PlannerData(csi)
     planner.getPlannerData(plannerData)
     numVertices = plannerData.numVertices()
 
-    if pdef.hasExactSolution():
-        path_simplifier = og.PathSimplifier(si)
-        try:
-            path_simplifier.simplify(pdef.getSolutionPath(), 0.0)
-        except TypeError:
-            print("Path not able to simplify for unknown reason!")
-            pass
-      
-        pdef.getSolutionPath().interpolate()
-        jointPath = pdef.getSolutionPath().printAsMatrix()
+    if success:
+        ss.simplifySolution()
+        path = [get_numpy_state(ss.getSolutionPath().getState(i))
+            for i in range(ss.getSolutionPath().getStateCount())
+        ]
+        ss.getSolutionPath().interpolate()
+        path_interpolated = ss.getSolutionPath().printAsMatrix()
         # Convert path to a numpy array
-        jointPath = np.array(list(map(lambda x: np.fromstring(x, dtype=np.float, sep=' '), jointPath.split('\n')))[:-2])
+        path_interpolated = np.array(list(map(lambda x: np.fromstring(x, dtype=np.float32, sep=' '), path_interpolated.split('\n')))[:-2])
         trajData = {
-            'jointPath': jointPath,
-            'totalTime': totalTime,
+            'path': np.array(path),
+            'path_interpolated': path_interpolated,
+            'totalTime': total_time,
             'numVertices': numVertices
         }
         return trajData, True
-    return {'numVertices':numVertices, 'totalTime':totalTime}, False
+    return {'numVertices':numVertices, 'totalTime':total_time}, False
 
 
 def start_experiment_rrt(client_id, start, samples, fileDir, pandaID, jointsID, all_obstacles):
@@ -134,25 +148,23 @@ def start_experiment_rrt(client_id, start, samples, fileDir, pandaID, jointsID, 
     bounds = ob.RealVectorBounds(7)
     # Set joint limits
     for j in range(7):
-        bounds.setHigh(j, q_max[0, j])
-        bounds.setLow(j, q_min[0, j])
+        bounds.setHigh(j, pu.q_max[0, j])
+        bounds.setLow(j, pu.q_min[0, j])
     space.setBounds(bounds)
     while i<start+samples:
         # If point is still in collision sample new random points
         valid_goal, goal_joints = try_target_location(client_id, pandaID, jointsID, all_obstacles)
         while not valid_goal:
             valid_goal, goal_joints = try_target_location(client_id, pandaID, jointsID, all_obstacles)
+        goal_pose, goal_ori = get_robot_pose_orientation(pandaID)
 
         # get start location
-        valid_start = try_start_location(pandaID, jointsID, all_obstacles)
+        valid_start = try_start_location(client_id, pandaID, jointsID, all_obstacles)
         while not valid_start:
-            valid_start = try_start_location(pandaID, jointsID, all_obstacles)
-        start_joints = get_joint_position(pandaID, jointsID)
+            valid_start = try_start_location(client_id, pandaID, jointsID, all_obstacles)
+        start_joints = pse.get_joint_position(pandaID, jointsID)
 
-        start_state = get_ompl_state(space, start_joints)
-        goal_state = get_ompl_state(space, goal_joints)
-
-        trajData, success = get_path(start_state, goal_state, space,all_obstacles, pandaID, jointsID)
+        trajData, success = get_constraint_path(start_joints, goal_joints, goal_ori, space,all_obstacles, pandaID, jointsID)
         tryCount +=1
         # if tryCount>5:
         #     i +=1
@@ -165,55 +177,6 @@ def start_experiment_rrt(client_id, start, samples, fileDir, pandaID, jointsID, 
             i += 1
             tryCount = 0
 
-
-def place_shelf(client_obj, base_pose, base_orient):
-    '''
-    Place the shelf and obstacles in the given pybullet scene.
-    :param client_obj: a pybullet scene handle.
-    :param base_pose: base position of the shelf.
-    :param base_orient: base orientation of the shelf (yaw, pitch, roll) in radians.
-    :returns list: obstacles ids of shelf and objects in the shelf.
-    '''
-    # =================== Place cupboard =================================
-    # Where to place the desk
-    visualShapeId = client_obj.createVisualShape(shapeType=client_obj.GEOM_MESH,
-                                    fileName="assets/cupboard.obj",
-                                    rgbaColor=[0.54, 0.31, 0.21, 1],
-                                    specularColor=[0.4, .4, 0],
-                                    )
-    collisionShapeId = client_obj.createCollisionShape(shapeType=client_obj.GEOM_MESH,
-                                        fileName="assets/cupboard_vhacd.obj",
-                                        )
-    base_orientation = pyb.getQuaternionFromEuler(base_orient)
-    obstacle_cupboard = client_obj.createMultiBody(baseMass=0.0,
-                      baseCollisionShapeIndex=collisionShapeId,
-                      baseVisualShapeIndex=visualShapeId,
-                      basePosition=base_pose,
-                      baseOrientation=base_orientation,
-                      useMaximalCoordinates=True
-                    )
-    return [obstacle_cupboard]
-
-
-def place_shelf_and_obstacles(client_obj, seed, bp_shelf=[0.3, -0.6, 0.0], bo_shelf=[np.pi/2, 0.0, 0.0], bp_obs=None):
-    '''
-    Place shelf and obstacles in the environment.
-    :param client_obj: a pybullet scene handle object.
-    :param seed: The seed used to generate obstacles on the shelf.
-    :param bp_shelf: base position of the shelf.
-    :param bo_shelf: base orientation of the shelf.
-    :param bp_obstacles: base position of the obstacles.
-    :return list: all the obstacle ids.
-    '''
-    if bp_obs is None:
-        bp_obs = bp_shelf
-    obstacle_cupboard = place_shelf(client_obj, bp_shelf, bo_shelf)
-
-    # Place objects in space.
-    shelf_obstacles = set_shelf_obstacles(client_obj, seed, bp_obs)
-
-    return obstacle_cupboard+shelf_obstacles
-
 def generateEnv(start, samples, numPaths, fileDir):
     '''
     Generate environments with randomly placed obstacles
@@ -223,20 +186,136 @@ def generateEnv(start, samples, numPaths, fileDir):
     :param numPaths: Number of paths to collect for each environment
     :param fileDir: Directory where path are stored
     '''
-    p = get_pybullet_server('direct')
+    p = pu.get_pybullet_server('direct')
     for seed in range(start, start+samples):
         envFileDir = osp.join(fileDir, f'env_{seed:06d}')
         if not osp.isdir(envFileDir):
             os.mkdir(envFileDir)
 
         # Reset the environment
-        set_simulation_env(p)
+        pu.set_simulation_env(p)
         # Place obstacles in space.
-        all_obstacles = place_shelf_and_obstacles(p, seed)
+        all_obstacles = pse.place_shelf_and_obstacles(p, seed)
         # Spawn the robot.
-        pandaID, jointsID, fingersID = set_robot(p)
+        pandaID, jointsID, fingersID = pu.set_robot(p)
 
-        start_experiment_rrt(0, numPaths, envFileDir, pandaID, jointsID, all_obstacles)
+        start_experiment_rrt(p, 0, numPaths, envFileDir, pandaID, jointsID, all_obstacles)
+
+def quaternion_difference(q1, q2):
+    """
+    NOTE: This function was generated using ChatGPT!!! Use w/ caution.
+    Calculates the difference between two orientations represented using quaternions.
+
+    Args:
+        q1 (tuple): A tuple representing the first quaternion in the format (x, y, z, w).
+        q2 (tuple): A tuple representing the second quaternion in the format (x, y, z, w).
+
+    Returns:
+        tuple: A tuple representing the quaternion difference in the format (w_diff, x_diff, y_diff, z_diff).
+    """
+    x1, y1, z1, w1 = q1
+    x2, y2, z2, w2 = q2
+
+    # Calculate the conjugate of q2
+    q2_conjugate = (w2, -x2, -y2, -z2)
+
+    # Multiply q1 by the conjugate of q2
+    diff = (
+        w1 * q2_conjugate[1] + x1 * q2_conjugate[0] + y1 * q2_conjugate[3] - z1 * q2_conjugate[2],
+        w1 * q2_conjugate[2] - x1 * q2_conjugate[3] + y1 * q2_conjugate[0] + z1 * q2_conjugate[1],
+        w1 * q2_conjugate[3] + x1 * q2_conjugate[2] - y1 * q2_conjugate[1] + z1 * q2_conjugate[0],
+        w1 * q2_conjugate[0] - x1 * q2_conjugate[1] - y1 * q2_conjugate[2] - z1 * q2_conjugate[3]
+    )
+
+    return diff
+
+def get_robot_pose_orientation(robotID):
+    '''
+    Returns the world pose and orientation of the robot end-effector.
+    :param client_id: pybullet client object.
+    :param robotID: pybullet robot id.
+    :returns tuple: (Pose, orientation) the pose and orientation of the robot.
+    '''
+    link_state = pyb.getLinkState(robotID, 11)
+    return link_state[4], link_state[5]
+
+
+# Constraint function
+def angularVelociyToAngleAxis(angle, axis):
+    '''
+    Return a matrix to convert angular velocity to angle-axis velocity
+    :apram angle: 
+    :param axis: 
+    '''
+    t = abs(angle)
+    R_skew = np.array([
+            [ 0,    -axis[2],  axis[1]],
+            [ axis[2],  0,    -axis[0]],
+            [-axis[1],  axis[0],  0]
+        ])
+    c = (1-0.5*t*np.sin(t)/(1-np.cos(t)))
+    return np.eye(3) - 0.5*R_skew+(R_skew@R_skew/(t*t))*c
+
+class EndEffectorConstraint(ob.Constraint):
+    def __init__(self, target_ori, tolerance, robotID, jointsID):
+        '''
+        Initialize the constraint function for fixed orientation constraint.
+        :param target_ori: The target orientation set by the planner represented using [x, y, z, w]
+        :param tolerance: wiggle room available for each axis of rotation.
+        :param robotID: pybullet ID of robot model
+        '''
+        self.target_ori = target_ori
+        self.tolerance = tolerance
+        self.robotID = robotID
+        self.jointsID = jointsID
+        self.panda_model = rtb.models.DH.Panda()
+        super().__init__(7, 3)
+
+    def get_current_position(self, q):
+        '''
+        Set the robot to the given position and return orientation.
+        '''
+        pu.set_position(self.robotID, self.jointsID, q)
+        return get_robot_pose_orientation(self.robotID)[1]
+
+        
+    def function(self, x, out):
+        '''
+        Evaluate the value of the function at the given point x
+        and set its value to out.
+        :param x: value at state.
+        :param out: constraint value.
+        '''
+        # Get the pose of the robot.
+        cur_ori = self.get_current_position(x)
+        rslt = pyb.getAxisAngleFromQuaternion(quaternion_difference(cur_ori, self.target_ori))
+        axis, angle = np.array(rslt[0]), rslt[1]
+        axis_error = angle*axis
+        for i in range(3):
+            if  abs(axis_error[i])<self.tolerance[i]:
+                out[i] = 0.0
+            else:
+                out[i] = axis_error[i]
+        
+    def jacobian(self, x, out):
+        cur_ori = self.get_current_position(x)
+        rslt = pyb.getAxisAngleFromQuaternion(quaternion_difference(cur_ori, self.target_ori))
+        axis, angle = np.array(rslt[0]), rslt[1]
+        angular_vel_axis_angle = angularVelociyToAngleAxis(angle, axis)
+        error_jacobian = -angular_vel_axis_angle@self.panda_model.jacob0(x, half='rot')
+        for r in range(3):
+            for c in range(7):
+                out[r, c] = error_jacobian[r, c]
+        out = error_jacobian.copy()
+
+
+def get_numpy_state(state):
+    ''' Return the state as a numpy array.
+    :param state: An ob.State from ob.RealVectorStateSpace
+    :return np.array:
+    '''
+    return np.array([state[i] for i in range(7)])
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Planning for RRT for Panda robot")
