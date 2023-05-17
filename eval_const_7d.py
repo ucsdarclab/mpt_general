@@ -420,7 +420,7 @@ def main(args):
             path = (data['path']-q_min)/(q_max-q_min)
             if data['success']:
                 if use_model:
-                    search_dist_mu, search_dist_sigma, patch_time = get_search_dist(path, data['jointPath'], map_data, context_env_encoder, decoder_model, ar_model, quantizer_model, num_keys)
+                    search_dist_mu, search_dist_sigma, patch_time = get_search_dist(path, data['path'], map_data, context_env_encoder, decoder_model, ar_model, quantizer_model, num_keys)
                 else:
                     print("Not using model, using uniform distribution")
                     search_dist_mu, search_dist_sigma, patch_time = None, None, 0.0
