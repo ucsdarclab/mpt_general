@@ -444,7 +444,7 @@ def main(args):
     if use_model:
         fileName = osp.join(ar_model_folder, f'eval_val_const_plan_{args.planner_type}_{start:06d}.p')
     else:
-        fileName = f'/root/data/general_mpt/const_{args.planner_type}_{start:06d}.p'
+        fileName = f'/root/data/general_mpt_panda_7d/const_{args.planner_type}_{start:06d}.p'
     pickle.dump(pathData, open(fileName, 'wb'))
 
 
