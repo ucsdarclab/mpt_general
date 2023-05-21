@@ -578,7 +578,10 @@ def main(args):
     
     pathData = {'Time':pathTime, 'Success':pathSuccess, 'Vertices':pathVertices, 'PlanTime':pathTimeOverhead, 'PredictTime': predict_seq_time, 'Path': pathPlanned}
     if use_model:
-        fileName = osp.join(ar_model_folder, f'eval_val_const_plan_{args.planner_type}_{start:06d}.p')
+        if args.project:
+            fileName = osp.join(ar_model_folder, f'eval_val_const_proj_plan_{args.planner_type}_{start:06d}.p')
+        else:
+            fileName = osp.join(ar_model_folder, f'eval_val_const_plan_{args.planner_type}_{start:06d}.p')
     else:
         fileName = f'/root/data/general_mpt_panda_7d/const_{args.planner_type}_{start:06d}.p'
     pickle.dump(pathData, open(fileName, 'wb'))
