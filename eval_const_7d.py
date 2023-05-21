@@ -12,13 +12,17 @@ from torch.distributions import MultivariateNormal
 
 import numpy as np
 import torch
+import torch.autograd as tag
 import json
 import argparse
 import pickle
 import open3d as o3d
 import torch_geometric.data as tg_data
+import pybullet as pyb
+import roboticstoolbox as rtb
 
 import matplotlib.pyplot as plt
+from einops import rearrange
 
 try:
     from ompl import base as ob
@@ -341,6 +345,135 @@ def get_search_dist(normalized_path, path, map_data, context_encoder, decoder_mo
     return search_dist_mu, search_dist_sigma, patch_time
  
 
+class ConstraintFunctions:
+    ''' A helper class for calculating constraints'''
+    def __init__(self, quantizer_model, initial_joint_pose, tolerance):
+        '''
+        :param quantizer_model: 
+        :param initial_joint_pose: The initial joint config, used to set orientation constraint.
+        :param tolerance: The tolerance of each constraint.
+        '''
+        p = get_pybullet_server('direct')
+        set_simulation_env(p)
+        self.robotID, self.jointsID, _ = set_robot(p)
+        self.quantizer_model = quantizer_model
+        self.tolerance = tolerance
+        self.panda_model = rtb.models.DH.Panda()
+        self.target_ori = self.get_robot_orientation(initial_joint_pose)
+
+    def get_robot_orientation(self, q):
+        '''
+        Returns the orientation of the robot at the given pose.
+        '''
+        # Get the pose of the robot.
+        pu.set_position(self.robotID, self.jointsID, q)
+        _, cur_ori = pcs.get_robot_pose_orientation(self.pandaID)
+        return cur_ori
+
+    def function(self, x):
+        '''
+        Evaluate the value of the function at the given point x
+        and set its value to out.
+        :param x: value at state.
+        :returns np.array: Objective function.
+        '''
+        cur_ori = self.get_robot_orientation(x)
+        rslt = pyb.getAxisAngleFromQuaternion(pcs.quaternion_difference(cur_ori, self.target_ori))
+        axis, angle = np.array(rslt[0]), rslt[1]
+        axis_error = angle*axis
+        out = np.zeros_like(axis_error)
+        for i in range(3):
+            if  abs(axis_error[i])<self.tolerance[i]:
+                out[i] = 0.0
+            else:
+                out[i] = axis_error[i]
+        return out
+
+    def jacobian(self, q):
+        '''
+        Evaluate the Jacobian of the objective function with respect to joint angles.
+        :param q: value at state.
+        :returns np.array: numpy array of joint_dim X 3
+        '''
+        cur_ori = self.get_robot_orientation(q)
+        rslt = pyb.getAxisAngleFromQuaternion(pcs.quaternion_difference(cur_ori, self.target_ori))
+        axis, angle = np.array(rslt[0]), rslt[1]
+        angular_vel_axis_angle = pcs.angularVelociyToAngleAxis(angle, axis)
+        error_jacobian = -angular_vel_axis_angle@self.panda_model.jacob0(q, half='rot')
+        return error_jacobian.T
+
+def get_search_proj_dist(normalized_path, path, map_data, context_encoder, decoder_model, ar_model, quantizer_model, num_keys):
+    '''
+    :returns (torch.tensor, torch.tensor, float): Returns an array of mean and covariance matrix and the time it took to 
+    fetch them.
+    '''
+    # Get the context.
+    constrain_obj = ConstraintFunctions(quantizer_model, tolerance = np.array())
+    start_time = time.time()
+    start_n_goal = torch.as_tensor(normalized_path[[0, -1], :7], dtype=torch.float)
+    env_input = tg_data.Batch.from_data_list([map_data])
+    context_output = context_encoder(env_input, start_n_goal[None, :].to(device))
+    # Find the sequence of dict values using beam search
+    goal_index = num_keys+1
+    quant_keys, _, input_seq = get_beam_search_path(51, 3, context_output, ar_model, quantizer_model, goal_index)
+
+    reached_goal = torch.stack(torch.where(quant_keys==goal_index), dim=1)
+    if len(reached_goal) > 0:
+        scale = torch.diag(torch.tensor((pu.q_max[0]-pu.q_min[0]), device=device, dtype=torch.float))
+        qMin_tensor = torch.tensor(pu.q_min[0], device=device, dtype=torch.float)
+        def get_distribution_mean(z):
+            '''
+            Returns the distribution for the latent vector z.
+            :param z: The latent vector z.
+            :returns torch.tensor: The mean distribution of z.
+            '''
+            z_scaled = quantizer_model.output_linear_map(z)
+            dist_mu, _ = decoder_model(z_scaled[None, :])
+            dist_mu = qMin_tensor + scale@dist_mu.squeeze()
+            return dist_mu
+        # Get the distribution.
+        # Ignore the zero index, since it is encoding representation of start vector.
+        output_dist_mu, output_dist_sigma = decoder_model(input_seq[reached_goal[0, 0], 1:reached_goal[0, 1]+1][None, :])
+        # Modify the latent vector by projecting along the gradient.
+        z_latent = quantizer_model.embedding(quant_keys[reached_goal[0, 0], :reached_goal[0, 1]])
+        z_latent_new = torch.zeros_like(z_latent)
+        for i, q_i in enumerate(output_dist_mu):
+            f = constrain_obj.function(q_i)
+            J_const = constrain_obj.jacobian(q_i.numpy())
+            J_robot = tag.functional.jacobian(get_distribution_mean, z_latent[i, :].squeeze())
+            J = J_const.T@J_robot.detach().cpu().numpy()
+            delta_z = -np.linalg.pinv(J)@f
+            z_temp = z_latent[i, :] + torch.tensor(delta_z, device=device, dtype=torch.float)
+            z_latent_new[i, :] = F.normalize(z_temp[None, :])
+        # Get closest dictionary index.
+        d = -torch.einsum('bd, dn -> bn', z_latent_new, rearrange(quantizer_model.embedding.weight, 'n d -> d n'))
+        _, new_dict_code = d.max(axis=1)
+        z_latent = quantizer_model.embedding(new_dict_code)
+        projected_latent = quantizer_model.output_linear_map(z_latent)
+        output_dist_mu, output_dist_sigma = decoder_model(projected_latent[None, :])
+
+        dist_mu = output_dist_mu.detach().cpu()
+        dist_sigma = output_dist_sigma.detach().cpu()
+        # If only a single point is predicted, then reshape the vector to a 2D tensor.
+        if len(dist_mu.shape) == 1:
+            dist_mu = dist_mu[None, :]
+            dist_sigma = dist_sigma[None, :]
+        
+        # ========================== append search with goal  ======================
+        search_dist_mu = torch.zeros((reached_goal[0, 1]+1, 7))
+        search_dist_mu[:reached_goal[0, 1], :7] = dist_mu
+        search_dist_mu[reached_goal[0, 1], :] = torch.tensor(normalized_path[-1])
+        search_dist_sigma = torch.diag_embed(torch.ones((reached_goal[0, 1]+1, 7)))
+        search_dist_sigma[:reached_goal[0, 1], :7, :7] = torch.tensor(dist_sigma)
+        search_dist_sigma[reached_goal[0, 1], :, :] = search_dist_sigma[reached_goal[0, 1], :, :]*0.01
+        # ==========================================================================
+    else:
+        search_dist_mu = None
+        search_dist_sigma = None
+    patch_time = time.time()-start_time
+    return search_dist_mu, search_dist_sigma, patch_time
+
+
 def main(args):
     ''' Main running script.
     :parma args: An object of type argparse.ArgumentParser().parse_args()
@@ -420,7 +553,10 @@ def main(args):
             path = (data['path']-q_min)/(q_max-q_min)
             if data['success']:
                 if use_model:
-                    search_dist_mu, search_dist_sigma, patch_time = get_search_dist(path, data['path'], map_data, context_env_encoder, decoder_model, ar_model, quantizer_model, num_keys)
+                    if args.project:
+                        search_dist_mu, search_dist_sigma, patch_time = get_search_proj_dist(path, data['path'], map_data, context_env_encoder, decoder_model, ar_model, quantizer_model, num_keys)
+                    else:
+                        search_dist_mu, search_dist_sigma, patch_time = get_search_dist(path, data['path'], map_data, context_env_encoder, decoder_model, ar_model, quantizer_model, num_keys)
                 else:
                     print("Not using model, using uniform distribution")
                     search_dist_mu, search_dist_sigma, patch_time = None, None, 0.0
@@ -457,6 +593,7 @@ if __name__ == "__main__":
     parser.add_argument('--samples', help="Number of samples to collect", type=int)
     parser.add_argument('--num_paths', help="Number of paths for each environment", type=int)
     parser.add_argument('--planner_type', help="Type of planner to use", choices=['rrtstar', 'rrt', 'rrtconnect', 'informedrrtstar', 'fmtstar', 'bitstar'])
+    parser.add_argument('--project', help="Project using the constraint function", action='store_true')
 
     args = parser.parse_args()
     main(args)
