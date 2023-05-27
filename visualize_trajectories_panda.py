@@ -44,7 +44,18 @@ def set_visual_shelf_env(client_obj, seed):
     :param seed: random seed used to generate enviornment.
     '''
     set_simulation_env(client_obj)
-    panda, joints, _ = set_robot(client_obj)
+    # panda, joints, _ = set_robot(client_obj)
+    panda, joints = None, None
+    # client_obj.loadURDF("plane.urdf", [0., 0., 0.])
+    visualBox = client_obj.createVisualShape(
+        pyb.GEOM_BOX, 
+        halfExtents=[2.5/2, 2.5/2, 0.1/2], 
+        rgbaColor=[0.39, 0.39, 0.39, 1]
+    )
+    client_obj.createMultiBody(
+            baseMass=0,
+            baseVisualShapeIndex=visualBox,
+            basePosition=[0, 0, -0.075])
     obstacles = pse.place_shelf_and_obstacles(client_obj, seed)
     return panda, joints, obstacles
 
