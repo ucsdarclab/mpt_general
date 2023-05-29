@@ -3,6 +3,7 @@
 '''
 import rospy
 from moveit_msgs.srv import GetSamplingDistributionSequence, GetSamplingDistributionSequenceResponse
+from moveit_msgs.msg import SamplingDistribution
 from sensor_msgs.msg import PointCloud2
 from utils import pointcloud2_to_xyz_array
 
@@ -109,7 +110,6 @@ def get_beam_search_path(max_length, K, context_output, ar_model, quantizer_mode
         input_seq[select_index, i+1, :] = quantizer_model.output_linear_map(quantizer_model.embedding(new_sequence[select_index, 1].to(device)))
     return quant_keys, path_cost, input_seq
 
-
 def get_search_dist(normalized_path, map_data, context_encoder, decoder_model, ar_model, quantizer_model, num_keys):
     '''
     :returns (torch.tensor, torch.tensor, float): Returns an array of mean and covariance matrix and the time it took to 
@@ -202,17 +202,14 @@ class DistributionSequencePredServer:
             model.to(device)
         
         self.server = rospy.Service('distribution_sequence_predict', GetSamplingDistributionSequence, self.handle_request)
-        self.pc_subscriber = rospy.Subscriber("obstacle_point_cloud", PointCloud2, self.point_cloud_callback, queue_size=1)
 
     def handle_request(self, req):
         print("receive req")
-        # print(req.start_configuration)
-        # print(req.goal_configuration)
-        # print("pointcloud shape")
-        # print(self.obstacle_pc.shape)
 
-        # set the pointcloud into tensor
-        map_data = tg_data.Data(pos=torch.as_tensor(self.obstacle_pc.shape, dtype=torch.float, device=device))
+        pointcloud_array = np.array(req.obstacle_pointcloud)
+
+        # # set the pointcloud into tensor
+        map_data = tg_data.Data(pos=torch.as_tensor(pointcloud_array.reshape(-1, 3), dtype=torch.float, device=device))
         
         # normalize the start and goal configuration and set them into tensors
         tmp = (np.array([req.start_configuration, req.goal_configuration])+np.pi)%(2*np.pi)
@@ -221,14 +218,20 @@ class DistributionSequencePredServer:
         path = (tmp-fu.q_min)/(fu.q_max-fu.q_min)
 
         search_dist_mu, search_dist_sigma, _ = get_search_dist(path, map_data, self.context_env_encoder, self.decoder_model, self.ar_model, self.quantizer_model, self.num_keys)
-        print(search_dist_mu)
-        print(search_dist_sigma)
+        
+        # unnormalize the result.
+        scaled_search_dist_mu =search_dist_mu*(fu.q_max-fu.q_min) + fu.q_min
+        scaled_search_dist_sigma = search_dist_sigma@np.diag((fu.q_max-fu.q_min)[0]**2)
 
-        return GetSamplingDistributionSequenceResponse()
+        result = GetSamplingDistributionSequenceResponse()
 
-    def point_cloud_callback(self, point_cloud):
-        self.obstacle_pc = pointcloud2_to_xyz_array(point_cloud)
+        for mean, sigma in zip(scaled_search_dist_mu, scaled_search_dist_sigma):
+            sd = SamplingDistribution()
+            sd.distribution_mean = mean.tolist()
+            sd.distribution_convariance = sum(sigma.tolist(),[])
+            result.distribution_sequence.append(sd)
 
+        return result
 
 if __name__ == "__main__":
 
