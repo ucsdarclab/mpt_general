@@ -295,6 +295,7 @@ class EndEffectorConstraint(ob.Constraint):
             if  abs(axis_error[i])<self.tolerance[i]:
                 out[i] = 0.0
             else:
+                out[i] = abs(axis_error[i])
     
     def bound_derivative(self, error):
         '''
