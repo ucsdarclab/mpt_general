@@ -31,6 +31,8 @@ try:
 except ImportError:
     raise "Run code from a container with OMPL installed"
 
+import scipy.optimize as opt
+
 from modules.quantizers import VectorQuantizer
 from modules.decoder import DecoderPreNorm, DecoderPreNormGeneral
 from modules.encoder import EncoderPreNorm
@@ -106,6 +108,7 @@ def getPathLengthObjective(cost, si):
     return obj
 
 import panda_constraint_shelf as pcs
+import roboticstoolbox as rtb
 
 def get_constraint_path(start, goal, env_num, dist_mu=None, dist_sigma=None, planner_type='rrtstar'):
     '''
@@ -142,8 +145,14 @@ def get_constraint_path(start, goal, env_num, dist_mu=None, dist_sigma=None, pla
     space.setStateSamplerAllocator(ob.StateSamplerAllocator(state_sampler))
     
     # Define constraint function
-    tolerance = np.array([0.1, 2*np.pi, 2*np.pi])
-    constraint_function = pcs.EndEffectorConstraint(goal_ori, tolerance, pandaID, jointsID)
+    # tolerance = np.array([0.1, 2*np.pi, 2*np.pi])
+    # tolerance = np.array([0.1, 0.1, 2*np.pi])
+    tolerance = np.array([2*np.pi, 0.1, 0.1])
+    # constraint_function = pcs.EndEffectorConstraint(goal_ori, tolerance, pandaID, jointsID)
+    # TODO: integrate this w/ the end-effector constraint.
+    panda_model = rtb.models.DH.Panda()
+    fix_orient_R = panda_model.fkine(start).R
+    constraint_function = pcs.EndEffectorConstraint(fix_orient_R, tolerance, pandaID, jointsID)
     
     # Set up the constraint planning space.
     css = ob.ProjectedStateSpace(space, constraint_function)
@@ -343,32 +352,21 @@ def get_search_dist(normalized_path, path, map_data, context_encoder, decoder_mo
         search_dist_sigma = None
     patch_time = time.time()-start_time
     return search_dist_mu, search_dist_sigma, patch_time
- 
 
+import spatialmath as spm
 class ConstraintFunctions:
     ''' A helper class for calculating constraints'''
     def __init__(self, quantizer_model, initial_joint_pose, tolerance):
         '''
+        :param client_id:
         :param quantizer_model: 
         :param initial_joint_pose: The initial joint config, used to set orientation constraint.
         :param tolerance: The tolerance of each constraint.
         '''
-        p = get_pybullet_server('direct')
-        set_simulation_env(p)
-        self.robotID, self.jointsID, _ = set_robot(p)
         self.quantizer_model = quantizer_model
         self.tolerance = tolerance
         self.panda_model = rtb.models.DH.Panda()
-        self.target_ori = self.get_robot_orientation(initial_joint_pose)
-
-    def get_robot_orientation(self, q):
-        '''
-        Returns the orientation of the robot at the given pose.
-        '''
-        # Get the pose of the robot.
-        pu.set_position(self.robotID, self.jointsID, q)
-        _, cur_ori = pcs.get_robot_pose_orientation(self.pandaID)
-        return cur_ori
+        self.target_ori = self.panda_model.fkine(initial_joint_pose).R
 
     def function(self, x):
         '''
@@ -377,17 +375,26 @@ class ConstraintFunctions:
         :param x: value at state.
         :returns np.array: Objective function.
         '''
-        cur_ori = self.get_robot_orientation(x)
-        rslt = pyb.getAxisAngleFromQuaternion(pcs.quaternion_difference(cur_ori, self.target_ori))
-        axis, angle = np.array(rslt[0]), rslt[1]
+        orient_diff = self.target_ori.T@self.panda_model.fkine(x).R
+        angle, axis = spm.base.tr2angvec(orient_diff)
         axis_error = angle*axis
         out = np.zeros_like(axis_error)
         for i in range(3):
             if  abs(axis_error[i])<self.tolerance[i]:
                 out[i] = 0.0
             else:
-                out[i] = axis_error[i]
+                out[i] = abs(axis_error[i])
         return out
+
+    def bound_derviate(self, error):
+        '''
+        Returns the jacobian of the bound.
+        '''
+        gradient = np.zeros((3, 3))
+        for i, e_i in enumerate(error):
+            if abs(e_i)>self.tolerance[i]:
+                gradient[i, i] = e_i/abs(e_i)
+        return gradient
 
     def jacobian(self, q):
         '''
@@ -395,20 +402,45 @@ class ConstraintFunctions:
         :param q: value at state.
         :returns np.array: numpy array of joint_dim X 3
         '''
-        cur_ori = self.get_robot_orientation(q)
-        rslt = pyb.getAxisAngleFromQuaternion(pcs.quaternion_difference(cur_ori, self.target_ori))
-        axis, angle = np.array(rslt[0]), rslt[1]
-        angular_vel_axis_angle = pcs.angularVelociyToAngleAxis(angle, axis)
-        error_jacobian = -angular_vel_axis_angle@self.panda_model.jacob0(q, half='rot')
-        return error_jacobian.T
+        orient_diff = self.target_ori.T@self.panda_model.fkine(q).R
+        angle, axis = spm.base.tr2angvec(orient_diff)
+        bound_gradient = self.bound_derviate(angle*axis)
+        error_jacobian = bound_gradient@self.target_ori.T@self.panda_model.jacob0(q, half='rot')
+        return error_jacobian
+
+
+def back_tracking(f, x0, delta, gamma, N):
+    '''
+    Do the line search along the function f.
+    :param f: Function to do backtracking.
+    :param x0: Initial value of search.
+    :param delta: The direction to move.
+    :param gamma: The fraction to backtrack.
+    :param N: Maximum number of iterations.
+    '''
+    f0 = f(x0)
+    x = x0
+    alpha = 1
+    for i in range(N):
+        x = x - alpha*delta
+        fx = f(x)
+        print(fx, alpha)
+        if np.linalg.norm(fx)<0.1 or (np.linalg.norm(fx)/np.linalg.norm(f0))<1:
+            return x
+        alpha = gamma*alpha
+    return None
 
 def get_search_proj_dist(normalized_path, path, map_data, context_encoder, decoder_model, ar_model, quantizer_model, num_keys):
     '''
     :returns (torch.tensor, torch.tensor, float): Returns an array of mean and covariance matrix and the time it took to 
     fetch them.
     '''
+    p = get_pybullet_server('direct')
     # Get the context.
-    constrain_obj = ConstraintFunctions(quantizer_model, tolerance = np.array())
+    # tolerance = np.array([0.1, 2*np.pi, 2*np.pi])
+    # tolerance = np.array([0.1, 0.1, 2*np.pi])
+    tolerance = np.array([2*np.pi, 0.1, 0.1])
+    constrain_obj = ConstraintFunctions(quantizer_model, path[0], tolerance = tolerance)
     start_time = time.time()
     start_n_goal = torch.as_tensor(normalized_path[[0, -1], :7], dtype=torch.float)
     env_input = tg_data.Batch.from_data_list([map_data])
@@ -433,23 +465,107 @@ def get_search_proj_dist(normalized_path, path, map_data, context_encoder, decod
             return dist_mu
         # Get the distribution.
         # Ignore the zero index, since it is encoding representation of start vector.
-        output_dist_mu, output_dist_sigma = decoder_model(input_seq[reached_goal[0, 0], 1:reached_goal[0, 1]+1][None, :])
+        # TODO: This is normalized space !!!
+        output_dist_mu, _ = decoder_model(input_seq[reached_goal[0, 0], 1:reached_goal[0, 1]+1][None, :])
+        output_dist_mu = output_dist_mu.detach().squeeze().cpu().numpy()
+        if len(output_dist_mu.shape)==1:
+            output_dist_mu = output_dist_mu[None, :]
         # Modify the latent vector by projecting along the gradient.
-        z_latent = quantizer_model.embedding(quant_keys[reached_goal[0, 0], :reached_goal[0, 1]])
+        z_latent = quantizer_model.embedding(quant_keys[reached_goal[0, 0], :reached_goal[0, 1]].to(dtype=torch.int, device=device))
         z_latent_new = torch.zeros_like(z_latent)
-        for i, q_i in enumerate(output_dist_mu):
+        # Get new latent varialbes using optimization
+        def reg_constrain_function(z_i, q_c, gamma):
+            '''
+            Calculates the regularized constraint objective function for a given
+            latent variable.
+            :param z_i: The given latent variable
+            :param target_ori: The constraint orientation.
+            :param q_c: Initial joint configuration.
+            :param gamma: weight factor for regularization term.
+            :param tolerance: tolerance for the constraint.
+            :returns float: a scalar value.
+            '''
+            z_i = torch.tensor(z_i, device=device, dtype=torch.float)
+            q_i = get_distribution_mean(z_i).detach().cpu().numpy()
             f = constrain_obj.function(q_i)
-            J_const = constrain_obj.jacobian(q_i.numpy())
-            J_robot = tag.functional.jacobian(get_distribution_mean, z_latent[i, :].squeeze())
-            J = J_const.T@J_robot.detach().cpu().numpy()
-            delta_z = -np.linalg.pinv(J)@f
-            z_temp = z_latent[i, :] + torch.tensor(delta_z, device=device, dtype=torch.float)
-            z_latent_new[i, :] = F.normalize(z_temp[None, :])
+            g = (q_i-q_c).T@(q_i-q_c)
+            return f.T@f + gamma*g
+        def reg_constrain_jacobian(z_i, q_c, gamma):
+            '''
+            Returns the Jacobian of the regularized constraint objective function for
+            the given latent variable.
+            :param z_i: latent variable.
+            :param target_ori: The constraint orientation.
+            :param q_c: Initial joint configuration.
+            :param gamma: weight factor for the regularization term.
+            :param tolerance: tolerance used for the constraint.
+            :return np.arrray: jacobian of the objective fuction.
+            '''
+            z_i = torch.tensor(z_i, device=device, dtype=torch.float)
+            q_i = get_distribution_mean(z_i).detach().cpu().numpy()
+            f = constrain_obj.function(q_i)
+            J_const = constrain_obj.jacobian(q_i)
+            J_decoder = tag.functional.jacobian(get_distribution_mean, z_i).detach().cpu().numpy()
+            J = 2*(f.T@J_const + gamma*(q_i-q_c).T)@J_decoder
+            return J
+        gamma = 0.1
+        z_latent_new = torch.zeros_like(z_latent)
+        for i, z_i in enumerate(z_latent):
+            q_i = get_distribution_mean(z_i).detach().cpu().numpy()
+            start_cost = constrain_obj.function(q_i)
+            objective_fun = lambda z: reg_constrain_function(z, q_i, gamma)
+            objective_jac = lambda z: reg_constrain_jacobian(z, q_i, gamma)
+            sol = opt.minimize(
+                fun=objective_fun,
+                x0=z_i.detach().cpu().numpy(),
+                jac=objective_jac,
+                method='SLSQP',
+                options={'disp':False},
+                constraints={'type':'eq', 'fun':lambda x:x.T@x-1}
+            )
+            if sol.success:
+                z_temp = torch.tensor(sol.x, device=device, dtype=torch.float)
+                z_temp = F.normalize(z_temp[None, :]).squeeze()
+            else:
+                print("No solution found")
+                z_temp = z_i
+            z_latent_new[i, :] = z_temp
+            new_cost = constrain_obj.function(get_distribution_mean(z_temp).detach().cpu().numpy())
+            print(f"Cost(Before): {start_cost} \nCost(After):{new_cost}")
+        # # Get new latent variables using line search.
+        # def get_jacobian(z_i):
+        #     q_i = get_distribution_mean(z_i).detach().cpu().numpy()
+        #     f = constrain_obj.function(q_i)
+        #     J_const = constrain_obj.jacobian(q_i)
+        #     J_decoder = tag.functional.jacobian(get_distribution_mean, z_i)
+        #     J = J_const@J_decoder.detach().cpu().numpy()
+        #     return f, J
+        # for i, z_i in enumerate(z_latent):
+        #     # Run a Newton algorithm to find zero-crossings
+        #     z0 = z_i
+        #     for _ in range(20):
+        #         f, J = get_jacobian(z0)
+        #         print(f"Start Cost: {f}")
+        #         # Terminate when we reach the line
+        #         if np.linalg.norm(f)<=0.1:
+        #             break
+        #         delta_z = torch.tensor(np.linalg.pinv(J)@f, device=device, dtype=torch.float)
+        #         # Use a backtracking algorithm:
+        #         f_z = lambda x: constrain_obj.function(get_distribution_mean(x).detach().cpu().numpy())
+        #         z_temp = back_tracking(f_z, z0, delta_z, gamma=0.9, N=10)
+        #         if z_temp is not None:
+        #             z0 = F.normalize(z_temp[None, :]).squeeze()
+        #         else:
+        #             break
+        #         # import pdb;pdb.set_trace()
+
+        #     z_latent_new[i, :] = z0
         # Get closest dictionary index.
-        d = -torch.einsum('bd, dn -> bn', z_latent_new, rearrange(quantizer_model.embedding.weight, 'n d -> d n'))
-        _, new_dict_code = d.max(axis=1)
-        z_latent = quantizer_model.embedding(new_dict_code)
-        projected_latent = quantizer_model.output_linear_map(z_latent)
+        # d = -torch.einsum('bd, dn -> bn', z_latent_new, rearrange(quantizer_model.embedding.weight, 'n d -> d n'))
+        # new_dict_code = torch.argmin(d, axis=1)
+        # z_latent = quantizer_model.embedding(new_dict_code)
+        # projected_latent = quantizer_model.output_linear_map(z_latent)
+        projected_latent = quantizer_model.output_linear_map(z_latent_new)
         output_dist_mu, output_dist_sigma = decoder_model(projected_latent[None, :])
 
         dist_mu = output_dist_mu.detach().cpu()
@@ -562,6 +678,7 @@ def main(args):
                     search_dist_mu, search_dist_sigma, patch_time = None, None, 0.0
             
                 planned_path, t, v, s = get_constraint_path(data['path'][0], data['path'][-1], env_num, search_dist_mu, search_dist_sigma, planner_type=args.planner_type)
+                print(t)
                 pathSuccess.append(s)
                 pathTime.append(t)
                 pathVertices.append(v)
@@ -579,11 +696,13 @@ def main(args):
     pathData = {'Time':pathTime, 'Success':pathSuccess, 'Vertices':pathVertices, 'PlanTime':pathTimeOverhead, 'PredictTime': predict_seq_time, 'Path': pathPlanned}
     if use_model:
         if args.project:
-            fileName = osp.join(ar_model_folder, f'eval_val_const_proj_plan_{args.planner_type}_{start:06d}.p')
+            # fileName = osp.join(ar_model_folder, f'eval_val_const_proj_plan_ls_{args.planner_type}_tip_{start:06d}.p')
+            # fileName = osp.join(ar_model_folder, f'eval_val_const_proj_plan_ls_nearest_{args.planner_type}_tip_{start:06d}.p')
+            fileName = osp.join(ar_model_folder, f'eval_val_const_proj_plan_opt_{args.planner_type}_tip_{start:06d}.p')
         else:
-            fileName = osp.join(ar_model_folder, f'eval_val_const_plan_{args.planner_type}_{start:06d}.p')
+            fileName = osp.join(ar_model_folder, f'eval_val_const_plan_{args.planner_type}_tip_{start:06d}.p')
     else:
-        fileName = f'/root/data/general_mpt_panda_7d/const_{args.planner_type}_{start:06d}.p'
+        fileName = f'/root/data/general_mpt_panda_7d/const_{args.planner_type}_tip_{start:06d}.p'
     pickle.dump(pathData, open(fileName, 'wb'))
 
 
