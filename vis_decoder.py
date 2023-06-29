@@ -10,6 +10,8 @@ from torch.distributions import MultivariateNormal
 import panda_utils as pdu
 from modules.quantizers import VectorQuantizer
 from modules.decoder import DecoderPreNormGeneral
+import pickle
+import visualize_trajectories_panda as vtp
 
 device = torch.device('cuda') if torch.cuda.is_available() else 'cpu'
 
@@ -45,7 +47,16 @@ if __name__ == "__main__":
     # TODO: Set up the robot at sampled locations.
     # random_index = np.random.randint(0, num_keys)
     p = pdu.get_pybullet_server('gui')
-    for random_index, rgba in zip([9, 730, 964], [[1, 0, 0, 0.4], [0, 1, 0, 0.4], [0, 0, 1, 0.4]]):
+    env_num = 2136
+    data_folder = f'/root/data/panda_shelf/val/env_{env_num:06d}'
+    with open(osp.join(data_folder, 'path_0.p'), 'rb') as f:
+        data = pickle.load(f)
+        q = data['jointPath']
+    panda_id, joints_id, all_obstacles = vtp.set_visual_shelf_env(p, seed=env_num)
+    # for random_index, rgba in zip([9, 730, 964], [[1, 0, 0, 0.4], [0, 1, 0, 0.4], [0, 0, 1, 0.4]]):
+    # for random_index, rgba in zip([730, 1996, 651], [[1, 0, 0, 0.5], [0, 1, 0, 0.5], [0., 0.25, 1, 0.5]]):
+    for random_index, rgba in zip([730, 1996], [[1, 0, 0, 0.5], [0, 1, 0, 0.5]]):
+    # for random_index, rgba in zip([1996, 651], [[0, 1, 0, 0.5], [0, 0, 1, 0.5]]):
     # for random_index, rgba in zip([np.random.randint(0, num_keys)], [[1, 0, 0, 0.4], [0, 1, 0, 0.4], [0, 0, 1, 0.4]]):
         print(f"Using Index: {random_index}")
 
@@ -60,10 +71,17 @@ if __name__ == "__main__":
         search_dist_mu[0, :6] = dist_mu
         search_dist_sigma = torch.diag_embed(torch.ones((1, 7)))
         search_dist_sigma[0, :6, :6] = dist_sigma
-
-        X = MultivariateNormal(search_dist_mu, search_dist_sigma)
+        torch.manual_seed(2)
+        X = MultivariateNormal(search_dist_mu, 0.1*search_dist_sigma)
         scale_pose = lambda x:  (x*(pdu.q_max - pdu.q_min)+pdu.q_min)[0]
         for _ in range(4):
             tmp_pose = scale_pose(X.sample())
             tmp_pose[-1] = 0.0
-            pdu.set_robot_vis(p, tmp_pose, rgba)
+            panda_vis = pdu.set_robot_vis(p, rgba)
+            pdu.set_position(panda_vis[0], panda_vis[1], tmp_pose)
+
+    X = MultivariateNormal(torch.tensor(q[-1], dtype=torch.float), 0.5*search_dist_sigma)
+    for i in range(4):
+        tmp_pose = X.sample().squeeze()
+        panda_vis = pdu.set_robot_vis(p, [0., 0.25, 1, 0.5])
+        pdu.set_position(panda_vis[0], panda_vis[1], tmp_pose)
