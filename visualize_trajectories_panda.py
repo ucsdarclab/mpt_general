@@ -44,8 +44,7 @@ def set_visual_shelf_env(client_obj, seed):
     :param seed: random seed used to generate enviornment.
     '''
     set_simulation_env(client_obj)
-    # panda, joints, _ = set_robot(client_obj)
-    panda, joints = None, None
+    panda, joints, _ = set_robot(client_obj)
     # client_obj.loadURDF("plane.urdf", [0., 0., 0.])
     visualBox = client_obj.createVisualShape(
         pyb.GEOM_BOX, 
@@ -112,19 +111,39 @@ if __name__ == "__main__":
     # ======================================================================
     # ================== Predicted Data ====================================
     if args.method == 'predict':
-        model_folder = '/root/data/general_mpt/stage2/model8'
-        planner_type = args.planner
-        # step_size = 50
-        step_size = 4
         if args.shelf:
-            with open(osp.join(model_folder, f'eval_val_plan_{planner_type}_shelf_{2000:06d}.p'), 'rb') as f:
+            p.resetDebugVisualizerCamera(1.8, 178.40, -60, np.array([0.0, 0.0, 0.0]))
+            # model_folder = f'/root/data/general_mpt_panda_7d'
+            # with open(osp.join(model_folder, f'path_jacobian_1_{9}.p'), 'rb') as f:
+            #     eval_data = pickle.load(f)
+            # # path = eval_data['Path'][env_num-2]
+            # # success = eval_data['Success'][env_num-2]
+            # path = eval_data['Path'][0]
+            # success = eval_data['Success'][0]
+            model_folder = f'/root/data/general_mpt_panda_7d/stage2/model1/'
+            with open(osp.join(model_folder, f'eval_val_const_plan_rrtconnect_tip_{0:06d}.p'), 'rb') as f:
                 eval_data = pickle.load(f)
+            # model_folder = f'/root/data/general_mpt_panda_7d/'
+            # with open(osp.join(model_folder, f'const_rrtconnect_tip_{0:06d}.p'), 'rb') as f:
+            #     eval_data = pickle.load(f)
+            index_num = env_num
+            path = eval_data['Path'][index_num]
+            success = eval_data['Success'][index_num]
+            step_size=1
         else:
-            with open(osp.join(model_folder, f'eval_val_plan_{planner_type}_{2000:06d}.p'), 'rb') as f:
-                eval_data = pickle.load(f)
-        index_num = env_num - 2000
-        path = eval_data['Path'][index_num]
-        success = eval_data['Success'][index_num]
+            model_folder = '/root/data/general_mpt/stage2/model8'
+            planner_type = args.planner
+            step_size = 50
+            # step_size = 4
+            if args.shelf:
+                with open(osp.join(model_folder, f'eval_val_plan_{planner_type}_shelf_{2000:06d}.p'), 'rb') as f:
+                    eval_data = pickle.load(f)
+            else:
+                with open(osp.join(model_folder, f'eval_val_plan_{planner_type}_{2000:06d}.p'), 'rb') as f:
+                    eval_data = pickle.load(f)
+            index_num = env_num - 2000
+            path = eval_data['Path'][index_num]
+            success = eval_data['Success'][index_num]
     # # ====================================================================
     # data_folder = '/root/data/pandav3/train'
     
