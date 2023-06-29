@@ -264,7 +264,7 @@ class EndEffectorConstraint(ob.Constraint):
         :param tolerance: wiggle room available for each axis of rotation.
         :param robotID: pybullet ID of robot model
         '''
-        self.target_ori = target_ori
+        self.fix_orient_R = target_ori
         self.tolerance = tolerance
         self.robotID = robotID
         self.jointsID = jointsID
