@@ -76,6 +76,8 @@ RUN pip3 install --no-index \
     torch-cluster \
     torch-spline-conv -f https://data.pyg.org/whl/torch-1.12.0+cu113.html
     
-RUN pip3 install torch-geometric 
+RUN pip3 install torch-geometric
+
+RUN pip3 install roboticstoolbox-python
 
 WORKDIR /workspace
