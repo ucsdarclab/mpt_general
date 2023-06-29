@@ -42,11 +42,12 @@ def set_robot(client_obj, base_pose = np.array([0]*3), base_orientation=np.array
         "franka_panda/panda.urdf", 
         basePosition=base_pose, 
         baseOrientation=base_ori_quat,
-        flags=pyb.URDF_USE_SELF_COLLISION
+        flags=pyb.URDF_USE_SELF_COLLISION,
+        useFixedBase=True
     )
     # Get the joint info
-    numLinkJoints = pyb.getNumJoints(panda)
-    jointInfo = [pyb.getJointInfo(panda, i) for i in range(numLinkJoints)]
+    numLinkJoints = client_obj.getNumJoints(panda)
+    jointInfo = [client_obj.getJointInfo(panda, i) for i in range(numLinkJoints)]
     # Joint nums
     joints = [j[0] for j in jointInfo if j[2]==pyb.JOINT_REVOLUTE]
     # finger nums
