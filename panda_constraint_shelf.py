@@ -6,7 +6,7 @@ import pybullet_data
 import pybullet_utils.bullet_client as bc
 
 import roboticstoolbox as rtb
-
+import spatialmath as spm
 import numpy as np
 import pickle
 import os
