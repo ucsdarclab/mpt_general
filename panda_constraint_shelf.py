@@ -286,10 +286,10 @@ class EndEffectorConstraint(ob.Constraint):
         :param x: value at state.
         :param out: constraint value.
         '''
-        # Get the pose of the robot.
-        cur_ori = self.get_current_position(x)
-        rslt = pyb.getAxisAngleFromQuaternion(quaternion_difference(cur_ori, self.target_ori))
-        axis, angle = np.array(rslt[0]), rslt[1]
+        # Using rtb
+        # orient_diff = self.panda_model.fkine(x).R.T@self.fix_orient_R
+        orient_diff = self.fix_orient_R.T@self.panda_model.fkine(x).R
+        angle, axis = spm.base.tr2angvec(orient_diff)
         axis_error = angle*axis
         for i in range(3):
             if  abs(axis_error[i])<self.tolerance[i]:
@@ -298,9 +298,9 @@ class EndEffectorConstraint(ob.Constraint):
                 out[i] = axis_error[i]
         
     def jacobian(self, x, out):
-        cur_ori = self.get_current_position(x)
-        rslt = pyb.getAxisAngleFromQuaternion(quaternion_difference(cur_ori, self.target_ori))
-        axis, angle = np.array(rslt[0]), rslt[1]
+        # Using rbt
+        orient_diff = self.fix_orient_R.T@self.panda_model.fkine(x).R
+        angle, axis = spm.base.tr2angvec(orient_diff)
         angular_vel_axis_angle = angularVelociyToAngleAxis(angle, axis)
         error_jacobian = -angular_vel_axis_angle@self.panda_model.jacob0(x, half='rot')
         for r in range(3):
