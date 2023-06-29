@@ -295,14 +295,24 @@ class EndEffectorConstraint(ob.Constraint):
             if  abs(axis_error[i])<self.tolerance[i]:
                 out[i] = 0.0
             else:
-                out[i] = axis_error[i]
-        
+    
+    def bound_derivative(self, error):
+        '''
+        Returns the jacobian of the bound.
+        '''
+        gradient = np.zeros((3, 3))
+        for i, e_i in enumerate(error):
+            if abs(e_i)>self.tolerance[i]:
+                gradient[i, i] = e_i/abs(e_i)
+        return gradient
+
+    # Jacobian 1
     def jacobian(self, x, out):
         # Using rbt
         orient_diff = self.fix_orient_R.T@self.panda_model.fkine(x).R
         angle, axis = spm.base.tr2angvec(orient_diff)
-        angular_vel_axis_angle = angularVelociyToAngleAxis(angle, axis)
-        error_jacobian = -angular_vel_axis_angle@self.panda_model.jacob0(x, half='rot')
+        bound_gradient = self.bound_derivative(angle*axis)
+        error_jacobian = bound_gradient@self.fix_orient_R.T@self.panda_model.jacob0(x, half='rot')
         for r in range(3):
             for c in range(7):
                 out[r, c] = error_jacobian[r, c]
