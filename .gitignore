@@ -146,3 +146,6 @@ cython_debug/
 
 # Remove tracking of all figures
 **/*.png
+
+# Remove tracking pickle files
+**/*.pkl
