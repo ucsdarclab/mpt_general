@@ -100,7 +100,7 @@ def set_obstacles(client_obj, seed, num_boxes, num_spheres, robot_id1, robot_id2
     # Remove the obstacles from env
     for obs in obstacles_box:
         if obs not in new_obstacles_box:
-            pyb.removeBody(obs)
+            client_obj.removeBody(obs)
 
     # Define spherical objects, position in spherical co-ordinates
     sphXYZ = pdu.get_random_pos(num_points=num_spheres)
@@ -123,7 +123,7 @@ def set_obstacles(client_obj, seed, num_boxes, num_spheres, robot_id1, robot_id2
     ]
     for obs in obstacles_sph:
         if obs not in new_obstacles_sph:
-            pyb.removeBody(obs)
+            client_obj.removeBody(obs)
 
     return new_obstacles_box+new_obstacles_sph
 
