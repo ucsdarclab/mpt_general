@@ -95,7 +95,7 @@ def set_obstacles(client_obj, seed, num_boxes, num_spheres, robot_id1, robot_id2
     # Check if the obstacles are in collision with the either robot
     new_obstacles_box = [obs 
         for obs in obstacles_box 
-            if not (pdu.get_distance([obs], robot_id1)<0 or pdu.get_distance([obs], robot_id2)<0)
+            if not (pdu.get_distance(client_obj, [obs], robot_id1)<0 or pdu.get_distance(client_obj, [obs], robot_id2)<0)
     ]
     # Remove the obstacles from env
     for obs in obstacles_box:
@@ -119,7 +119,7 @@ def set_obstacles(client_obj, seed, num_boxes, num_spheres, robot_id1, robot_id2
     # Check if the obstacles are in collision with the robot base.
     new_obstacles_sph = [ obs
         for obs in obstacles_sph
-            if not (pdu.get_distance([obs], robot_id1)<0 or pdu.get_distance([obs], robot_id2)<0)
+            if not (pdu.get_distance(client_obj, [obs], robot_id1)<0 or pdu.get_distance(client_obj, [obs], robot_id2)<0)
     ]
     for obs in obstacles_sph:
         if obs not in new_obstacles_sph:
@@ -162,10 +162,10 @@ if __name__=="__main__":
 
     # TODO: Find valid robot 2 start pose
     pdu.set_position(p, robotid1[0], robotid1[1], get_random_pose())
-    while pdu.get_distance(all_obstacles, robotid1[0])<0:
+    while pdu.get_distance(p, all_obstacles, robotid1[0])<0:
         pdu.set_position(p, robotid1[0], robotid1[1], get_random_pose())
 
     # TODO: Find valid robot 1 start pose
     pdu.set_position(p, robotid2[0], robotid2[1], get_random_pose())
-    while pdu.get_distance(all_obstacles, robotid2[0])<0:
+    while pdu.get_distance(p, all_obstacles, robotid2[0])<0:
         pdu.set_position(p, robotid2[0], robotid2[1], get_random_pose())

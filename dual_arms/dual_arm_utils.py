@@ -204,14 +204,14 @@ class ValidityCheckerDualDistance(ob.StateValidityChecker):
             return False
 
         # Check for collision b/w robots
-        if get_distance([self.robotID_1[0]], self.robotID_2[0])<0:
+        if get_distance(self.client_obj, [self.robotID_1[0]], self.robotID_2[0])<0:
             return False
 
         # Check if either robots are colliding w/ obstacles.
         if self.obstacles is not None:
-            if get_distance(self.obstacles, self.robotID_1[0])<0:
+            if get_distance(self.client_obj, self.obstacles, self.robotID_1[0])<0:
                 return False
-            if get_distance(self.obstacles, self.robotID_2[0])<0:
+            if get_distance(self.client_obj, self.obstacles, self.robotID_2[0])<0:
                 return False
         return True
 

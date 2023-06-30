@@ -174,12 +174,12 @@ def try_target_location(client_obj, robotID, jointsID,  obstacles):
     random_pose = base_pose + scale*np.random.rand(3)
     set_joint_pose = np.array(set_IK_position(client_obj, robotID, jointsID, random_pose, random_orient))[:7]
     # Check if the robot is in self-collision/collision w/ obstacles.
-    if check_self_collision(robotID) or get_distance(obstacles, robotID)<=0 or (not check_bounds(set_joint_pose)):
+    if check_self_collision(robotID) or get_distance(client_obj, obstacles, robotID)<=0 or (not check_bounds(set_joint_pose)):
         # If so randomize the joints and calculate IK once again.
         random_joint_pose = (q_min + (q_max - q_min)*np.random.rand(7))[0]
         set_position(client_obj, robotID, jointsID, random_joint_pose)
         set_joint_pose = np.array(set_IK_position(client_obj, robotID, jointsID, random_pose, random_orient))[:7]
-        if check_self_collision(robotID) or get_distance(obstacles, robotID)<=0 or (not check_bounds(set_joint_pose)):
+        if check_self_collision(robotID) or get_distance(client_obj, obstacles, robotID)<=0 or (not check_bounds(set_joint_pose)):
             return False, set_joint_pose
     return True, set_joint_pose
 
@@ -195,7 +195,7 @@ def try_start_location(client_obj, robotID, jointsID, obstacles):
     random_pose = (q_min + (q_max-q_min)*np.random.rand(7))[0]
     random_pose[6] = 1.9891
     set_position(client_obj, robotID, jointsID, random_pose)
-    if check_self_collision(robotID) or get_distance(obstacles, robotID)<=0:
+    if check_self_collision(robotID) or get_distance(client_obj, obstacles, robotID)<=0:
         return False
     return True
 

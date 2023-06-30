@@ -44,17 +44,17 @@ def try_target_location(
     '''
     set_joint_pose = np.array(pse.set_IK_position(client_obj, robotID, jointsID, bp, bo))[:7]
     # Check if the robot is in self-collision/collision w/ obstacles.
-    if pse.check_self_collision(robotID) or pdu.get_distance(obstacles, robotID)<=0 or (not pse.check_bounds(set_joint_pose)):
+    if pse.check_self_collision(robotID) or pdu.get_distance(client_obj, obstacles, robotID)<=0 or (not pse.check_bounds(set_joint_pose)):
         # If so randomize the joints and calculate IK once again.
         random_joint_pose = (pdu.q_min + (pdu.q_max - pdu.q_min)*np.random.rand(7))[0]
         pdu.set_position(client_obj, robotID, jointsID, random_joint_pose)
         set_joint_pose = np.array(pse.set_IK_position(client_obj, robotID, jointsID, bp, bo))[:7]
-        if pse.check_self_collision(robotID) or pdu.get_distance(obstacles, robotID)<=0 or (not pse.check_bounds(set_joint_pose)):
+        if pse.check_self_collision(robotID) or pdu.get_distance(client_obj, obstacles, robotID)<=0 or (not pse.check_bounds(set_joint_pose)):
             # if pse.check_self_collision(robotID):
             #     # print("Robot is in collision with itself!!")
             # if not pse.check_bounds(set_joint_pose):
             #     print("Joints out of bounds")
-            # if pdu.get_distance(obstacles, robotID)<=0:
+            # if pdu.get_distance(client_obj, obstacles, robotID)<=0:
             #     print("Robot is in collision with obstacles.")
             return False, set_joint_pose
     return True, set_joint_pose
