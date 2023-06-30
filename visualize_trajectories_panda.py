@@ -182,7 +182,7 @@ if __name__ == "__main__":
             tmp_path = (1-alpha)*path[i] + alpha*path[i+1]
             for pos in tmp_path:
                 # Set robot position.
-                set_position(panda, joints, pos)
+                set_position(p, panda, joints, pos)
                 # tmp_robot = set_robot_vis(p, pos, [1, 1, 1 , 0.6])
                 # width, height, rgbImg, depthImg, segImg = p.getCameraImage(
                 #     width=480, 

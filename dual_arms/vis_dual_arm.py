@@ -49,8 +49,8 @@ if __name__ == "__main__":
     if data["Success"][path_num]:
         path = data['Path'][path_num]
     # robotid1, robotid2, all_obstacles = cd.set_env(p, args.env_num)
-    # pyb.removeBody(robotid1[0])
-    # pyb.removeBody(robotid2[0])
+    # p.removeBody(robotid1[0])
+    # p.removeBody(robotid2[0])
     # if args.method == 'train':
     #     dataFolder = "/root/data/bi_panda/train"
     #     with open(osp.join(dataFolder, f'env_{env_num:06d}', f'path_{path_num}.p'), 'rb') as f:
@@ -88,7 +88,7 @@ if __name__ == "__main__":
     for i, _ in enumerate(path[:-1]):
         tmp_path = (1-alpha)*path[i] + alpha*path[i+1]
         for pos in tmp_path:
-            pdu.set_position(robotid1[0], robotid1[1], pos[:7])
-            pdu.set_position(robotid2[0], robotid2[1], pos[7:])
+            pdu.set_position(p, robotid1[0], robotid1[1], pos[:7])
+            pdu.set_position(p, robotid2[0], robotid2[1], pos[7:])
             time.sleep(0.25)
     time.sleep(1)

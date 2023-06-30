@@ -73,21 +73,21 @@ def set_dual_robot_vis(client_obj, pose, rgbaColor):
     # Spawn the robots.
     robot1_vis_ids, robot2_vis_ids = set_vis_dual_robot(client_obj)
     # Get the joint info
-    numLinkJoints = pyb.getNumJoints(robot1_vis_ids[0])
+    numLinkJoints = client_obj.getNumJoints(robot1_vis_ids[0])
     # Change the color of the robot.
     for j in range(numLinkJoints):
         client_obj.changeVisualShape(robot1_vis_ids[0], j, rgbaColor=rgbaColor)
         client_obj.changeVisualShape(robot2_vis_ids[0], j, rgbaColor=rgbaColor)
     
     #  Set the robot1 to a particular pose.
-    set_position(robot1_vis_ids[0], robot1_vis_ids[1], pose[:7])
-    set_position(robot2_vis_ids[0], robot2_vis_ids[1], pose[7:])
+    set_position(client_obj, robot1_vis_ids[0], robot1_vis_ids[1], pose[:7])
+    set_position(client_obj, robot2_vis_ids[0], robot2_vis_ids[1], pose[7:])
 
     return robot1_vis_ids, robot2_vis_ids
 
 
 # Check collision with base
-def check_robot_base_collision(obstacle, robotID):
+def check_robot_base_collision(client_id, obstacle, robotID):
     '''
     Return True is the robot base is in collision with the robot.
     :param obstacle: The pybullet id for the obstacle.
@@ -95,7 +95,7 @@ def check_robot_base_collision(obstacle, robotID):
     :returns bool: True if the robot base is in collision.
     '''
     distance = min(
-        link[8] for link in pyb.getClosestPoints(bodyA=obstacle, bodyB=robotID, distance=10)[:3]
+        link[8] for link in client_id.getClosestPoints(bodyA=obstacle, bodyB=robotID, distance=10)[:3]
     )
     return distance<0
 
@@ -141,12 +141,12 @@ def set_obstacles(client_obj, seed, num_boxes, num_spheres, robot_id1, robot_id2
     # Check if the obstacles are in collision with the robot base.
     new_obstacles_box = [obs 
         for obs in obstacles_box 
-            if not (check_robot_base_collision(obs, robot_id1) or check_robot_base_collision(obs, robot_id2))
+            if not (check_robot_base_collision(client_obj, obs, robot_id1) or check_robot_base_collision(client_obj, obs, robot_id2))
     ]
     # Remove the obstacles from env
     for obs in obstacles_box:
         if obs not in new_obstacles_box:
-            pyb.removeBody(obs)
+            client_obj.removeBody(obs)
 
     # Define spherical objects, position in spherical co-ordinates
     sphXYZ = get_random_pos(num_points=num_spheres)
@@ -165,11 +165,11 @@ def set_obstacles(client_obj, seed, num_boxes, num_spheres, robot_id1, robot_id2
     # Check if the obstacles are in collision with the robot base.
     new_obstacles_sph = [ obs
         for obs in obstacles_sph
-            if not (check_robot_base_collision(obs, robot_id1) or check_robot_base_collision(obs, robot_id2))
+            if not (check_robot_base_collision(client_obj, obs, robot_id1) or check_robot_base_collision(client_obj, obs, robot_id2))
     ]
     for obs in obstacles_sph:
         if obs not in new_obstacles_sph:
-            pyb.removeBody(obs)
+            client_obj.removeBody(obs)
 
     return new_obstacles_box+new_obstacles_sph
 
@@ -177,7 +177,7 @@ class ValidityCheckerDualDistance(ob.StateValidityChecker):
     ''' A class to check the validity of the state for bi-manual robot setup.
     '''
     defaultOrientation = pyb.getQuaternionFromEuler([0, 0, 0])
-    def __init__(self, si, robotID_1, robotID_2, obstacles=None):
+    def __init__(self, client_obj, si, robotID_1, robotID_2, obstacles=None):
         ''' initialize the class object.
         :param si: an object o type ompl.base.SpaceInformation
         :param robotID_1: A tuple of robot_ID, joints_ID for robot 1
@@ -185,6 +185,7 @@ class ValidityCheckerDualDistance(ob.StateValidityChecker):
         :param obstacles: A list of obstacles ID
         '''
         super().__init__(si)
+        self.client_obj = client_obj
         self.obstacles = obstacles
         self.robotID_1 = robotID_1
         self.robotID_2 = robotID_2
@@ -196,21 +197,21 @@ class ValidityCheckerDualDistance(ob.StateValidityChecker):
         :return bool: True if the state is valid.
         '''
         # Set robot position
-        set_position(self.robotID_1[0], self.robotID_1[1], [state[i] for i in range(7)])
-        set_position(self.robotID_2[0], self.robotID_2[1], [state[i] for i in range(7, 14)])
+        set_position(self.client_obj, self.robotID_1[0], self.robotID_1[1], [state[i] for i in range(7)])
+        set_position(self.client_obj, self.robotID_2[0], self.robotID_2[1], [state[i] for i in range(7, 14)])
         # Check for self collision
-        if check_self_collision(self.robotID_1[0]) or check_self_collision(self.robotID_2[0]):
+        if check_self_collision(self.client_obj, self.robotID_1[0]) or check_self_collision(self.client_obj, self.robotID_2[0]):
             return False
 
         # Check for collision b/w robots
-        if get_distance([self.robotID_1[0]], self.robotID_2[0])<0:
+        if get_distance(self.client_obj, [self.robotID_1[0]], self.robotID_2[0])<0:
             return False
 
         # Check if either robots are colliding w/ obstacles.
         if self.obstacles is not None:
-            if get_distance(self.obstacles, self.robotID_1[0])<0:
+            if get_distance(self.client_obj, self.obstacles, self.robotID_1[0])<0:
                 return False
-            if get_distance(self.obstacles, self.robotID_2[0])<0:
+            if get_distance(self.client_obj, self.obstacles, self.robotID_2[0])<0:
                 return False
         return True
 
@@ -291,6 +292,7 @@ if __name__ == "__main__":
 
     si = ob.SpaceInformation(space)
     valid_checker_obj = ValidityCheckerDualDistance(
+        p,
         si, 
         robotID_1=(robot1_ids[0], robot1_ids[1]),
         robotID_2=(robot2_ids[0], robot2_ids[1])

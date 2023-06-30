@@ -48,7 +48,7 @@ def set_IK_position(client_obj, model, joints, end_effector_id, end_effector_pos
             restPoses=(pdu.q_max+pdu.q_min)[0]/2,
             maxNumIterations=75
         )
-    pdu.set_position(model, joints, joint_pose)
+    pdu.set_position(client_obj, model, joints, joint_pose)
     return joint_pose
 
 def get_robot_pose(client_id, robotID, ee_link_id):
@@ -95,12 +95,12 @@ def set_obstacles(client_obj, seed, num_boxes, num_spheres, robot_id1, robot_id2
     # Check if the obstacles are in collision with the either robot
     new_obstacles_box = [obs 
         for obs in obstacles_box 
-            if not (pdu.get_distance([obs], robot_id1)<0 or pdu.get_distance([obs], robot_id2)<0)
+            if not (pdu.get_distance(client_obj, [obs], robot_id1)<0 or pdu.get_distance(client_obj, [obs], robot_id2)<0)
     ]
     # Remove the obstacles from env
     for obs in obstacles_box:
         if obs not in new_obstacles_box:
-            pyb.removeBody(obs)
+            client_obj.removeBody(obs)
 
     # Define spherical objects, position in spherical co-ordinates
     sphXYZ = pdu.get_random_pos(num_points=num_spheres)
@@ -119,21 +119,21 @@ def set_obstacles(client_obj, seed, num_boxes, num_spheres, robot_id1, robot_id2
     # Check if the obstacles are in collision with the robot base.
     new_obstacles_sph = [ obs
         for obs in obstacles_sph
-            if not (pdu.get_distance([obs], robot_id1)<0 or pdu.get_distance([obs], robot_id2)<0)
+            if not (pdu.get_distance(client_obj, [obs], robot_id1)<0 or pdu.get_distance(client_obj, [obs], robot_id2)<0)
     ]
     for obs in obstacles_sph:
         if obs not in new_obstacles_sph:
-            pyb.removeBody(obs)
+            client_obj.removeBody(obs)
 
     return new_obstacles_box+new_obstacles_sph
 
-def get_joint_position(robotid, jointids):
+def get_joint_position(client_obj, robotid, jointids):
     '''
     return a numpy array of joint states.
     :param robotid:
     :param jointids:
     '''
-    return np.array([pyb.getJointState(robotid, ji)[0] for ji in jointids])
+    return np.array([client_obj.getJointState(robotid, ji)[0] for ji in jointids])
 
 if __name__=="__main__":
     p = pdu.get_pybullet_server('gui')
@@ -142,16 +142,16 @@ if __name__=="__main__":
     get_random_pose = lambda : ((pdu.q_max-pdu.q_min)*np.random.rand(7) + pdu.q_min).squeeze()
     # Find valid robot 1 goal pose
     # Set robot1 to random pose
-    pdu.set_position(robotid1[0], robotid1[1], get_random_pose())
-    robot1_goal_pose = get_joint_position(robotid1[0], robotid1[1])
+    pdu.set_position(p, robotid1[0], robotid1[1], get_random_pose())
+    robot1_goal_pose = get_joint_position(p, robotid1[0], robotid1[1])
 
     random_pose = np.r_[-0.095, 0.5, 0.5]
     random_orient = np.r_[-np.pi, -np.pi/2, np.pi]
     set_IK_position(p, robotid1[0], robotid1[1], 11, random_pose, random_orient)
 
     # Find valid robot 2 start pose
-    pdu.set_position(robotid2[0], robotid2[1], get_random_pose())
-    robot2_goal_pose = get_joint_position(robotid2[0], robotid2[1])
+    pdu.set_position(p, robotid2[0], robotid2[1], get_random_pose())
+    robot2_goal_pose = get_joint_position(p, robotid2[0], robotid2[1])
 
     random_pose = np.r_[-0.125, 0.5, 0.5]
     random_orient = np.r_[-np.pi, np.pi/2, np.pi]
@@ -161,12 +161,11 @@ if __name__=="__main__":
     all_obstacles = set_obstacles(p, 5, 9, 9, robotid1[0], robotid2[0])
 
     # TODO: Find valid robot 2 start pose
-    pdu.set_position(robotid1[0], robotid1[1], get_random_pose())
-    while pdu.get_distance(all_obstacles, robotid1[0])<0:
-        pdu.set_position(robotid1[0], robotid1[1], get_random_pose())
+    pdu.set_position(p, robotid1[0], robotid1[1], get_random_pose())
+    while pdu.get_distance(p, all_obstacles, robotid1[0])<0:
+        pdu.set_position(p, robotid1[0], robotid1[1], get_random_pose())
 
     # TODO: Find valid robot 1 start pose
-    pdu.set_position(robotid2[0], robotid2[1], get_random_pose())
-    while pdu.get_distance(all_obstacles, robotid2[0])<0:
-        pdu.set_position(robotid2[0], robotid2[1], get_random_pose())
-
+    pdu.set_position(p, robotid2[0], robotid2[1], get_random_pose())
+    while pdu.get_distance(p, all_obstacles, robotid2[0])<0:
+        pdu.set_position(p, robotid2[0], robotid2[1], get_random_pose())

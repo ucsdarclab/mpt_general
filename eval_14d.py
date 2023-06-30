@@ -111,7 +111,7 @@ class StateSamplerRegion(ob.StateSampler):
         else:
             sample_pos = next(self.get_random_samples())
         for i, val in enumerate(sample_pos):
-            state[i] = np.float(val)
+            state[i] = float(val)
         return True
 
 
@@ -162,6 +162,7 @@ def get_path(start, goal, env_num, dist_mu=None, dist_sigma=None, cost=None, pla
     # robotid1, robotid2 = dau.set_dual_robot(p)
     # all_obstacles = das.generate_scene(p)
     validity_checker_obj = dau.ValidityCheckerDualDistance(
+        p,
         si,
         robotID_1=(robotid1[0], robotid1[1]),
         robotID_2=(robotid2[0], robotid2[1]),

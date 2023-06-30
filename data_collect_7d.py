@@ -37,6 +37,7 @@ def generate_trajectories(client_obj, env_num, space, num_paths, file_dir, cur_p
     si = ob.SpaceInformation(space)
     # Collect trajectories without obstacles
     valid_checker_obj = pu.ValidityCheckerDistance(
+        client_obj,
         si,
         robotID=robotid[0],
         joints=robotid[1],
@@ -44,6 +45,7 @@ def generate_trajectories(client_obj, env_num, space, num_paths, file_dir, cur_p
     )
     # # Collect trajectories with obstacles.
     # valid_checker_obj = pu.ValidityCheckerDistance(
+    #     client_obj,
     #     si,
     #     robotID=robotid[0],
     #     joints=robotid[1],

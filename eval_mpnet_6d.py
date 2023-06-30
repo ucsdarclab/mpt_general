@@ -171,7 +171,7 @@ def get_mpnet_path(q, mlp_model, h, p, env_num):
     # pdu.set_simulation_env(p)
     # pandaID, jointsID, _ = pdu.set_robot(p)
     # all_obstacles = pse.place_shelf_and_obstacles(p, seed=env_num) 
-    # validity_checker_obj = pdu.ValidityCheckerDistance(si, all_obstacles, pandaID, jointsID)
+    # validity_checker_obj = pdu.ValidityCheckerDistance(p, si, all_obstacles, pandaID, jointsID)
 
     # Try connecting the ends
     for _ in range(10):

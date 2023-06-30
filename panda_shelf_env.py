@@ -54,7 +54,7 @@ def set_IK_position(client_obj, model, joints, end_effector_pose, end_effector_o
             restPoses=(q_max+q_min)[0]/2,
             maxNumIterations=75
         )
-    set_position(model, joints, joint_pose)
+    set_position(client_obj, model, joints, joint_pose)
     return joint_pose
 
 
@@ -65,7 +65,7 @@ def get_robot_end_effector_pose(client_id, robotID):
     return np.array(client_id.getLinkState(robotID, 8)[4])
 
 
-def check_self_collision(robotID):
+def check_self_collision(client_id, robotID):
     '''
     Checks if the robot is in collision with itself.
     :param robotID: pybullet ID of the robot.
@@ -86,7 +86,7 @@ def check_self_collision(robotID):
     offset = np.diag(selfContact)+np.diag(adjContact, k=1)+ np.diag(adjContact, k=-1)
     
     collMat = np.array(
-        [link[8] for link in pyb.getClosestPoints(robotID, robotID, distance=2)]
+        [link[8] for link in client_id.getClosestPoints(robotID, robotID, distance=2)]
     ).reshape((11, 11))-offset
     minDist = np.min(collMat)
     return minDist<0 and not np.isclose(minDist, 0.0)
@@ -143,14 +143,14 @@ def set_shelf_obstacles(client_obj, seed, base_shelf_position):
     return shelf_obstacles
 
 
-def get_joint_position(robotID, jointsID):
+def get_joint_position(client_id, robotID, jointsID):
     '''
     Returns a numpy array of all the joints for the given robot.
     :param robotID: pybullet ID of the robot.
     :param jointsID: List of link ID whose joint angles are requested.
     :return np.array: The resulting joint configuration.
     '''
-    return np.array(list(map(lambda x:x[0], pyb.getJointStates(robotID, jointsID))))
+    return np.array(list(map(lambda x:x[0], client_id.getJointStates(robotID, jointsID))))
 
 def check_bounds(joint_angle):
     '''
@@ -174,17 +174,17 @@ def try_target_location(client_obj, robotID, jointsID,  obstacles):
     random_pose = base_pose + scale*np.random.rand(3)
     set_joint_pose = np.array(set_IK_position(client_obj, robotID, jointsID, random_pose, random_orient))[:7]
     # Check if the robot is in self-collision/collision w/ obstacles.
-    if check_self_collision(robotID) or get_distance(obstacles, robotID)<=0 or (not check_bounds(set_joint_pose)):
+    if check_self_collision(client_obj, robotID) or get_distance(client_obj, obstacles, robotID)<=0 or (not check_bounds(set_joint_pose)):
         # If so randomize the joints and calculate IK once again.
         random_joint_pose = (q_min + (q_max - q_min)*np.random.rand(7))[0]
-        set_position(robotID, jointsID, random_joint_pose)
+        set_position(client_obj, robotID, jointsID, random_joint_pose)
         set_joint_pose = np.array(set_IK_position(client_obj, robotID, jointsID, random_pose, random_orient))[:7]
-        if check_self_collision(robotID) or get_distance(obstacles, robotID)<=0 or (not check_bounds(set_joint_pose)):
+        if check_self_collision(client_obj, robotID) or get_distance(client_obj, obstacles, robotID)<=0 or (not check_bounds(set_joint_pose)):
             return False, set_joint_pose
     return True, set_joint_pose
 
 
-def try_start_location(robotID, jointsID, obstacles):
+def try_start_location(client_obj, robotID, jointsID, obstacles):
     '''
     Attempts to place robot at random goal location.
     :param robotID: pybullet ID of the robot.
@@ -194,13 +194,13 @@ def try_start_location(robotID, jointsID, obstacles):
     '''
     random_pose = (q_min + (q_max-q_min)*np.random.rand(7))[0]
     random_pose[6] = 1.9891
-    set_position(robotID, jointsID, random_pose)
-    if check_self_collision(robotID) or get_distance(obstacles, robotID)<=0:
+    set_position(client_obj, robotID, jointsID, random_pose)
+    if check_self_collision(client_obj, robotID) or get_distance(client_obj, obstacles, robotID)<=0:
         return False
     return True
 
 
-def get_path(start_state, goal_state, space, all_obstacles, pandaID, jointsID):
+def get_path(start_state, goal_state, space, all_obstacles, client_obj, pandaID, jointsID):
     '''
     Use a planner to generate a trajectory from start to goal.
     :param start_state:
@@ -208,7 +208,7 @@ def get_path(start_state, goal_state, space, all_obstacles, pandaID, jointsID):
     :param space:
     '''
     si = ob.SpaceInformation(space)
-    validity_checker_obj = ValidityCheckerDistance(si, all_obstacles, pandaID, jointsID)
+    validity_checker_obj = ValidityCheckerDistance(client_obj, si, all_obstacles, pandaID, jointsID)
     si.setStateValidityChecker(validity_checker_obj)
 
     # Define planning problem
@@ -244,7 +244,7 @@ def get_path(start_state, goal_state, space, all_obstacles, pandaID, jointsID):
         pdef.getSolutionPath().interpolate()
         jointPath = pdef.getSolutionPath().printAsMatrix()
         # Convert path to a numpy array
-        jointPath = np.array(list(map(lambda x: np.fromstring(x, dtype=np.float, sep=' '), jointPath.split('\n')))[:-2])
+        jointPath = np.array(list(map(lambda x: np.fromstring(x, dtype=float, sep=' '), jointPath.split('\n')))[:-2])
         trajData = {
             'jointPath': jointPath,
             'totalTime': totalTime,
@@ -281,15 +281,15 @@ def start_experiment_rrt(client_id, start, samples, fileDir, pandaID, jointsID, 
             valid_goal, goal_joints = try_target_location(client_id, pandaID, jointsID, all_obstacles)
 
         # get start location
-        valid_start = try_start_location(pandaID, jointsID, all_obstacles)
+        valid_start = try_start_location(client_id, pandaID, jointsID, all_obstacles)
         while not valid_start:
-            valid_start = try_start_location(pandaID, jointsID, all_obstacles)
-        start_joints = get_joint_position(pandaID, jointsID)
+            valid_start = try_start_location(client_id, pandaID, jointsID, all_obstacles)
+        start_joints = get_joint_position(client_id, pandaID, jointsID)
 
         start_state = get_ompl_state(space, start_joints)
         goal_state = get_ompl_state(space, goal_joints)
 
-        trajData, success = get_path(start_state, goal_state, space,all_obstacles, pandaID, jointsID)
+        trajData, success = get_path(start_state, goal_state, space,all_obstacles, client_id, pandaID, jointsID)
         tryCount +=1
         # if tryCount>5:
         #     i +=1

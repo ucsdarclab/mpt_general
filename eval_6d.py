@@ -92,7 +92,7 @@ class StateSamplerRegion(ob.StateSampler):
         else:
             sample_pos = next(self.get_random_samples())
         for i, val in enumerate(sample_pos):
-            state[i] = np.float(val)
+            state[i] = float(val)
         return True
 
 
@@ -140,7 +140,7 @@ def get_path(start, goal, env_num, dist_mu=None, dist_sigma=None, cost=None, pla
     # set_simulation_env(p)
     # pandaID, jointsID, _ = set_robot(p)
     # all_obstacles = place_shelf_and_obstacles(p, seed=env_num) 
-    # validity_checker_obj = ValidityCheckerDistance(si, all_obstacles, pandaID, jointsID)
+    # validity_checker_obj = ValidityCheckerDistance(p, si, all_obstacles, pandaID, jointsID)
     si.setStateValidityChecker(validity_checker_obj)
 
     start_state = get_ompl_state(space, start)

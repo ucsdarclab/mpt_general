@@ -39,6 +39,7 @@ def generate_trajectories(client_obj, env_num, space, num_paths, file_dir, cur_p
     robotid1, robotid2, all_obstacles = set_env(client_obj, env_num)
     si = ob.SpaceInformation(space)
     valid_checker_obj = dau.ValidityCheckerDualDistance(
+        client_obj,
         si,
         robotID_1=(robotid1[0], robotid1[1]),
         robotID_2=(robotid2[0], robotid2[1]),
