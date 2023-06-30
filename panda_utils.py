@@ -71,8 +71,8 @@ def set_robot_vis(client_obj, rgbaColor=None, base_pose = np.array([0]*3), base_
         flags=pyb.URDF_ENABLE_CACHED_GRAPHICS_SHAPES
     )
     # Get the joint info
-    numLinkJoints = pyb.getNumJoints(pandaVis)
-    jointInfo = [pyb.getJointInfo(pandaVis, i) for i in range(numLinkJoints)]
+    numLinkJoints = client_obj.getNumJoints(pandaVis)
+    jointInfo = [client_obj.getJointInfo(pandaVis, i) for i in range(numLinkJoints)]
     # Joint nums
     jointsVis = [j[0] for j in jointInfo if j[2]==pyb.JOINT_REVOLUTE]
     # Set the robot to a particular pose.
