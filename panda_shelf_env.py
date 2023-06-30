@@ -86,7 +86,7 @@ def check_self_collision(client_id, robotID):
     offset = np.diag(selfContact)+np.diag(adjContact, k=1)+ np.diag(adjContact, k=-1)
     
     collMat = np.array(
-        [link[8] for link in pyb.getClosestPoints(client_id, robotID, robotID, distance=2)]
+        [link[8] for link in client_id.getClosestPoints(robotID, robotID, distance=2)]
     ).reshape((11, 11))-offset
     minDist = np.min(collMat)
     return minDist<0 and not np.isclose(minDist, 0.0)

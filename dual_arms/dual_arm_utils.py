@@ -87,7 +87,7 @@ def set_dual_robot_vis(client_obj, pose, rgbaColor):
 
 
 # Check collision with base
-def check_robot_base_collision(obstacle, robotID):
+def check_robot_base_collision(client_id, obstacle, robotID):
     '''
     Return True is the robot base is in collision with the robot.
     :param obstacle: The pybullet id for the obstacle.
@@ -95,7 +95,7 @@ def check_robot_base_collision(obstacle, robotID):
     :returns bool: True if the robot base is in collision.
     '''
     distance = min(
-        link[8] for link in pyb.getClosestPoints(bodyA=obstacle, bodyB=robotID, distance=10)[:3]
+        link[8] for link in client_id.getClosestPoints(bodyA=obstacle, bodyB=robotID, distance=10)[:3]
     )
     return distance<0
 
@@ -141,7 +141,7 @@ def set_obstacles(client_obj, seed, num_boxes, num_spheres, robot_id1, robot_id2
     # Check if the obstacles are in collision with the robot base.
     new_obstacles_box = [obs 
         for obs in obstacles_box 
-            if not (check_robot_base_collision(obs, robot_id1) or check_robot_base_collision(obs, robot_id2))
+            if not (check_robot_base_collision(client_obj, obs, robot_id1) or check_robot_base_collision(client_obj, obs, robot_id2))
     ]
     # Remove the obstacles from env
     for obs in obstacles_box:
@@ -165,7 +165,7 @@ def set_obstacles(client_obj, seed, num_boxes, num_spheres, robot_id1, robot_id2
     # Check if the obstacles are in collision with the robot base.
     new_obstacles_sph = [ obs
         for obs in obstacles_sph
-            if not (check_robot_base_collision(obs, robot_id1) or check_robot_base_collision(obs, robot_id2))
+            if not (check_robot_base_collision(client_obj, obs, robot_id1) or check_robot_base_collision(client_obj, obs, robot_id2))
     ]
     for obs in obstacles_sph:
         if obs not in new_obstacles_sph:
