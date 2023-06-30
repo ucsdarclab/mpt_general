@@ -200,7 +200,7 @@ class ValidityCheckerDualDistance(ob.StateValidityChecker):
         set_position(self.client_obj, self.robotID_1[0], self.robotID_1[1], [state[i] for i in range(7)])
         set_position(self.client_obj, self.robotID_2[0], self.robotID_2[1], [state[i] for i in range(7, 14)])
         # Check for self collision
-        if check_self_collision(self.robotID_1[0]) or check_self_collision(self.robotID_2[0]):
+        if check_self_collision(self.client_obj, self.robotID_1[0]) or check_self_collision(self.client_obj, self.robotID_2[0]):
             return False
 
         # Check for collision b/w robots

@@ -262,7 +262,7 @@ class ValidityCheckerDistance(ob.StateValidityChecker):
         '''Get collision matrix between links
         '''
         warnings.warn("Use the function, not the class objects")
-        return np.array([link[8] for link in pyb.getClosestPoints(self.robotID, self.robotID, distance=2)]).reshape((11, 11))
+        return np.array([link[8] for link in self.client_obj.getClosestPoints(self.robotID, self.robotID, distance=2)]).reshape((11, 11))
 
     def checkSelfCollision(self):
         '''Returns True if links are in self-collision for the PANDA robot
