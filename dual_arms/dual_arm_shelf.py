@@ -147,7 +147,7 @@ def get_start_n_goal(robotid1, robotid2, obstacles, seq):
         # print(pse.get_robot_end_effector_pose(p, robotid2[0]))
         if not (success1 and success2):
             return None
-        start_goal_pose.append(np.r_[pse.get_joint_position(robotid1[0], robotid1[1]), pse.get_joint_position(robotid2[0], robotid2[1])])
+        start_goal_pose.append(np.r_[pse.get_joint_position(p, robotid1[0], robotid1[1]), pse.get_joint_position(p, robotid2[0], robotid2[1])])
     return start_goal_pose
 
 
