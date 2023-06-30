@@ -304,7 +304,7 @@ def set_env(client_obj, space, num_boxes, num_spheres, seed):
     panda, joints, _ = set_robot(client_obj)
     obstacles = set_obstacles(client_obj, num_boxes=num_boxes, num_spheres=num_spheres, seed = seed)
     si = ob.SpaceInformation(space)   
-    ValidityCheckerObj = ValidityCheckerDistance(si, obstacles, panda, joints)
+    ValidityCheckerObj = ValidityCheckerDistance(client_obj, si, obstacles, panda, joints)
     return ValidityCheckerObj
 
 

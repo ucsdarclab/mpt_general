@@ -200,7 +200,7 @@ def try_start_location(client_obj, robotID, jointsID, obstacles):
     return True
 
 
-def get_path(start_state, goal_state, space, all_obstacles, pandaID, jointsID):
+def get_path(start_state, goal_state, space, all_obstacles, client_obj, pandaID, jointsID):
     '''
     Use a planner to generate a trajectory from start to goal.
     :param start_state:
@@ -208,7 +208,7 @@ def get_path(start_state, goal_state, space, all_obstacles, pandaID, jointsID):
     :param space:
     '''
     si = ob.SpaceInformation(space)
-    validity_checker_obj = ValidityCheckerDistance(si, all_obstacles, pandaID, jointsID)
+    validity_checker_obj = ValidityCheckerDistance(client_obj, si, all_obstacles, pandaID, jointsID)
     si.setStateValidityChecker(validity_checker_obj)
 
     # Define planning problem
@@ -289,7 +289,7 @@ def start_experiment_rrt(client_id, start, samples, fileDir, pandaID, jointsID, 
         start_state = get_ompl_state(space, start_joints)
         goal_state = get_ompl_state(space, goal_joints)
 
-        trajData, success = get_path(start_state, goal_state, space,all_obstacles, pandaID, jointsID)
+        trajData, success = get_path(start_state, goal_state, space,all_obstacles, client_id, pandaID, jointsID)
         tryCount +=1
         # if tryCount>5:
         #     i +=1
