@@ -244,7 +244,7 @@ def get_path(start_state, goal_state, space, all_obstacles, client_obj, pandaID,
         pdef.getSolutionPath().interpolate()
         jointPath = pdef.getSolutionPath().printAsMatrix()
         # Convert path to a numpy array
-        jointPath = np.array(list(map(lambda x: np.fromstring(x, dtype=np.float, sep=' '), jointPath.split('\n')))[:-2])
+        jointPath = np.array(list(map(lambda x: np.fromstring(x, dtype=float, sep=' '), jointPath.split('\n')))[:-2])
         trajData = {
             'jointPath': jointPath,
             'totalTime': totalTime,

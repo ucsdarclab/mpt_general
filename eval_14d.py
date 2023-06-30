@@ -111,7 +111,7 @@ class StateSamplerRegion(ob.StateSampler):
         else:
             sample_pos = next(self.get_random_samples())
         for i, val in enumerate(sample_pos):
-            state[i] = np.float(val)
+            state[i] = float(val)
         return True
 
 
