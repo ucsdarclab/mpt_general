@@ -48,7 +48,7 @@ def set_IK_position(client_obj, model, joints, end_effector_id, end_effector_pos
             restPoses=(pdu.q_max+pdu.q_min)[0]/2,
             maxNumIterations=75
         )
-    pdu.set_position(model, joints, joint_pose)
+    pdu.set_position(client_obj, model, joints, joint_pose)
     return joint_pose
 
 def get_robot_pose(client_id, robotID, ee_link_id):
@@ -142,7 +142,7 @@ if __name__=="__main__":
     get_random_pose = lambda : ((pdu.q_max-pdu.q_min)*np.random.rand(7) + pdu.q_min).squeeze()
     # Find valid robot 1 goal pose
     # Set robot1 to random pose
-    pdu.set_position(robotid1[0], robotid1[1], get_random_pose())
+    pdu.set_position(p, robotid1[0], robotid1[1], get_random_pose())
     robot1_goal_pose = get_joint_position(robotid1[0], robotid1[1])
 
     random_pose = np.r_[-0.095, 0.5, 0.5]
@@ -150,7 +150,7 @@ if __name__=="__main__":
     set_IK_position(p, robotid1[0], robotid1[1], 11, random_pose, random_orient)
 
     # Find valid robot 2 start pose
-    pdu.set_position(robotid2[0], robotid2[1], get_random_pose())
+    pdu.set_position(p, robotid2[0], robotid2[1], get_random_pose())
     robot2_goal_pose = get_joint_position(robotid2[0], robotid2[1])
 
     random_pose = np.r_[-0.125, 0.5, 0.5]
@@ -161,12 +161,11 @@ if __name__=="__main__":
     all_obstacles = set_obstacles(p, 5, 9, 9, robotid1[0], robotid2[0])
 
     # TODO: Find valid robot 2 start pose
-    pdu.set_position(robotid1[0], robotid1[1], get_random_pose())
+    pdu.set_position(p, robotid1[0], robotid1[1], get_random_pose())
     while pdu.get_distance(all_obstacles, robotid1[0])<0:
-        pdu.set_position(robotid1[0], robotid1[1], get_random_pose())
+        pdu.set_position(p, robotid1[0], robotid1[1], get_random_pose())
 
     # TODO: Find valid robot 1 start pose
-    pdu.set_position(robotid2[0], robotid2[1], get_random_pose())
+    pdu.set_position(p, robotid2[0], robotid2[1], get_random_pose())
     while pdu.get_distance(all_obstacles, robotid2[0])<0:
-        pdu.set_position(robotid2[0], robotid2[1], get_random_pose())
-
+        pdu.set_position(p, robotid2[0], robotid2[1], get_random_pose())

@@ -80,8 +80,8 @@ def set_dual_robot_vis(client_obj, pose, rgbaColor):
         client_obj.changeVisualShape(robot2_vis_ids[0], j, rgbaColor=rgbaColor)
     
     #  Set the robot1 to a particular pose.
-    set_position(robot1_vis_ids[0], robot1_vis_ids[1], pose[:7])
-    set_position(robot2_vis_ids[0], robot2_vis_ids[1], pose[7:])
+    set_position(client_obj, robot1_vis_ids[0], robot1_vis_ids[1], pose[:7])
+    set_position(client_obj, robot2_vis_ids[0], robot2_vis_ids[1], pose[7:])
 
     return robot1_vis_ids, robot2_vis_ids
 
@@ -177,7 +177,7 @@ class ValidityCheckerDualDistance(ob.StateValidityChecker):
     ''' A class to check the validity of the state for bi-manual robot setup.
     '''
     defaultOrientation = pyb.getQuaternionFromEuler([0, 0, 0])
-    def __init__(self, si, robotID_1, robotID_2, obstacles=None):
+    def __init__(self, client_obj, si, robotID_1, robotID_2, obstacles=None):
         ''' initialize the class object.
         :param si: an object o type ompl.base.SpaceInformation
         :param robotID_1: A tuple of robot_ID, joints_ID for robot 1
@@ -185,6 +185,7 @@ class ValidityCheckerDualDistance(ob.StateValidityChecker):
         :param obstacles: A list of obstacles ID
         '''
         super().__init__(si)
+        self.client_obj = client_obj
         self.obstacles = obstacles
         self.robotID_1 = robotID_1
         self.robotID_2 = robotID_2
@@ -196,8 +197,8 @@ class ValidityCheckerDualDistance(ob.StateValidityChecker):
         :return bool: True if the state is valid.
         '''
         # Set robot position
-        set_position(self.robotID_1[0], self.robotID_1[1], [state[i] for i in range(7)])
-        set_position(self.robotID_2[0], self.robotID_2[1], [state[i] for i in range(7, 14)])
+        set_position(self.client_obj, self.robotID_1[0], self.robotID_1[1], [state[i] for i in range(7)])
+        set_position(self.client_obj, self.robotID_2[0], self.robotID_2[1], [state[i] for i in range(7, 14)])
         # Check for self collision
         if check_self_collision(self.robotID_1[0]) or check_self_collision(self.robotID_2[0]):
             return False
@@ -291,6 +292,7 @@ if __name__ == "__main__":
 
     si = ob.SpaceInformation(space)
     valid_checker_obj = ValidityCheckerDualDistance(
+        p,
         si, 
         robotID_1=(robot1_ids[0], robot1_ids[1]),
         robotID_2=(robot2_ids[0], robot2_ids[1])

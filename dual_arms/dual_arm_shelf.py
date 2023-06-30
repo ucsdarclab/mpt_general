@@ -47,7 +47,7 @@ def try_target_location(
     if pse.check_self_collision(robotID) or pdu.get_distance(obstacles, robotID)<=0 or (not pse.check_bounds(set_joint_pose)):
         # If so randomize the joints and calculate IK once again.
         random_joint_pose = (pdu.q_min + (pdu.q_max - pdu.q_min)*np.random.rand(7))[0]
-        pdu.set_position(robotID, jointsID, random_joint_pose)
+        pdu.set_position(client_obj, robotID, jointsID, random_joint_pose)
         set_joint_pose = np.array(pse.set_IK_position(client_obj, robotID, jointsID, bp, bo))[:7]
         if pse.check_self_collision(robotID) or pdu.get_distance(obstacles, robotID)<=0 or (not pse.check_bounds(set_joint_pose)):
             # if pse.check_self_collision(robotID):
@@ -193,6 +193,7 @@ if __name__=="__main__":
 
     si = ob.SpaceInformation(space)
     validity_checker_obj = dau.ValidityCheckerDualDistance(
+        p,
         si,
         robotID_1=(robotid1[0], robotid1[1]),
         robotID_2=(robotid2[0], robotid2[1]),

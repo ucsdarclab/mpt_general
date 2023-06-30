@@ -162,6 +162,7 @@ def get_path(start, goal, env_num, dist_mu=None, dist_sigma=None, cost=None, pla
     # robotid1, robotid2 = dau.set_dual_robot(p)
     # all_obstacles = das.generate_scene(p)
     validity_checker_obj = dau.ValidityCheckerDualDistance(
+        p,
         si,
         robotID_1=(robotid1[0], robotid1[1]),
         robotID_2=(robotid2[0], robotid2[1]),

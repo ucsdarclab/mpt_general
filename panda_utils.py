@@ -76,7 +76,7 @@ def set_robot_vis(client_obj, rgbaColor=None, base_pose = np.array([0]*3), base_
     # Joint nums
     jointsVis = [j[0] for j in jointInfo if j[2]==pyb.JOINT_REVOLUTE]
     # Set the robot to a particular pose.
-    set_position(pandaVis, jointsVis, base_pose)
+    set_position(client_obj, pandaVis, jointsVis, base_pose)
     # Change the color of the robot.
     for j in range(numLinkJoints):
         client_obj.changeVisualShape(pandaVis, j, rgbaColor=rgbaColor)
@@ -91,13 +91,13 @@ def set_simulation_env(client_obj):
     client_obj.resetSimulation()
     client_obj.setGravity(0, 0, -9.8)
 
-def set_position(model, joints, jointValue):
+def set_position(client_obj, model, joints, jointValue):
     ''' Set the model robot to the given joint values
     :param model: pybullet id of link.
     :param jointValue: joint value to be set
     '''
     for jV, j in zip(jointValue, joints):
-        pyb.resetJointState(model, j, jV)
+        client_obj.resetJointState(model, j, jV)
 
 def get_random_pos(num_points):
     ''' Generate random points in 3D space.
@@ -163,7 +163,7 @@ def set_obstacles(client_obj, seed, num_boxes, num_spheres):
     return obstacles_box+obstacles_sph
 
 # Collision checking
-def get_distance(obstacles, robotID):
+def get_distance(client_obj, obstacles, robotID):
     '''  
     Return the distance of the obstacles and robot.
     :param obstacles: A list of obstacle ID
@@ -173,7 +173,7 @@ def get_distance(obstacles, robotID):
     assert isinstance(obstacles, list), "Obstacles has to be a list"
     distance =  min(
             (
-                min(link[8] for link in pyb.getClosestPoints(bodyA=obs, bodyB=robotID, distance=100))
+                min(link[8] for link in client_obj.getClosestPoints(bodyA=obs, bodyB=robotID, distance=100))
                 for obs in obstacles
             )
         )
@@ -193,12 +193,12 @@ adjContact = np.array([
     -0.002214306228527925
     ])
 link_offset = np.diag(selfContact)+np.diag(adjContact, k=1)+ np.diag(adjContact, k=-1)
-def check_self_collision(robotID):
+def check_self_collision(client_id, robotID):
     ''' Checks if the robot meshes are touching each other.
     :param robotID: the pybullet ID of the robot.
     :returns bool: Returns True if the robot links are in collision
     '''
-    collision_mat = np.array([link[8] for link in pyb.getClosestPoints(robotID, robotID, distance=2)]).reshape((11, 11))
+    collision_mat = np.array([link[8] for link in client_id.getClosestPoints(robotID, robotID, distance=2)]).reshape((11, 11))
     collMat = collision_mat-link_offset
     minDist = np.min(collMat)
     return minDist<0 and not np.isclose(minDist, 0.0)
@@ -208,7 +208,7 @@ class ValidityCheckerDistance(ob.StateValidityChecker):
     '''A class to check the validity of the state, by checking distance function
     '''
     defaultOrientation = pyb.getQuaternionFromEuler([0., 0., 0.])
-    def __init__(self, si, obstacles, robotID, joints):
+    def __init__(self, client_obj, si, obstacles, robotID, joints):
         '''
         Initialize the class object, with the obstacle ID's
         :param si: an object of type omp.base.SpaceInformation
@@ -217,6 +217,7 @@ class ValidityCheckerDistance(ob.StateValidityChecker):
         :param joints: list of joints
         '''
         super().__init__(si)
+        self.client_obj = client_obj
         self.obstacles = obstacles
         self.robotID = robotID
         self.joints = joints
@@ -241,8 +242,8 @@ class ValidityCheckerDistance(ob.StateValidityChecker):
         :return bool: True if the state is valid.
         '''
         # Set robot position
-        set_position(self.robotID, self.joints, [state[i] for i in range(7)])
-        if not check_self_collision(self.robotID):
+        set_position(self.client_obj, self.robotID, self.joints, [state[i] for i in range(7)])
+        if not check_self_collision(self.client_obj, self.robotID):
             if self.obstacles is not None:
                 return self.getDistance(state)>0
             else:
@@ -255,7 +256,7 @@ class ValidityCheckerDistance(ob.StateValidityChecker):
         :param x: A numpy array of state x.
         :returns float: The closest distance between the robot and obstacle.
         '''
-        return get_distance(self.obstacles, self.robotID)
+        return get_distance(self.client_obj, self.obstacles, self.robotID)
 
     def getCollisionMat(self):
         '''Get collision matrix between links

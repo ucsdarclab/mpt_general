@@ -88,7 +88,7 @@ if __name__ == "__main__":
     for i, _ in enumerate(path[:-1]):
         tmp_path = (1-alpha)*path[i] + alpha*path[i+1]
         for pos in tmp_path:
-            pdu.set_position(robotid1[0], robotid1[1], pos[:7])
-            pdu.set_position(robotid2[0], robotid2[1], pos[7:])
+            pdu.set_position(p, robotid1[0], robotid1[1], pos[:7])
+            pdu.set_position(p, robotid2[0], robotid2[1], pos[7:])
             time.sleep(0.25)
     time.sleep(1)

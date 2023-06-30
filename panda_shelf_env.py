@@ -54,7 +54,7 @@ def set_IK_position(client_obj, model, joints, end_effector_pose, end_effector_o
             restPoses=(q_max+q_min)[0]/2,
             maxNumIterations=75
         )
-    set_position(model, joints, joint_pose)
+    set_position(client_obj, model, joints, joint_pose)
     return joint_pose
 
 
@@ -143,14 +143,14 @@ def set_shelf_obstacles(client_obj, seed, base_shelf_position):
     return shelf_obstacles
 
 
-def get_joint_position(robotID, jointsID):
+def get_joint_position(client_id, robotID, jointsID):
     '''
     Returns a numpy array of all the joints for the given robot.
     :param robotID: pybullet ID of the robot.
     :param jointsID: List of link ID whose joint angles are requested.
     :return np.array: The resulting joint configuration.
     '''
-    return np.array(list(map(lambda x:x[0], pyb.getJointStates(robotID, jointsID))))
+    return np.array(list(map(lambda x:x[0], client_id.getJointStates(robotID, jointsID))))
 
 def check_bounds(joint_angle):
     '''
@@ -177,14 +177,14 @@ def try_target_location(client_obj, robotID, jointsID,  obstacles):
     if check_self_collision(robotID) or get_distance(obstacles, robotID)<=0 or (not check_bounds(set_joint_pose)):
         # If so randomize the joints and calculate IK once again.
         random_joint_pose = (q_min + (q_max - q_min)*np.random.rand(7))[0]
-        set_position(robotID, jointsID, random_joint_pose)
+        set_position(client_obj, robotID, jointsID, random_joint_pose)
         set_joint_pose = np.array(set_IK_position(client_obj, robotID, jointsID, random_pose, random_orient))[:7]
         if check_self_collision(robotID) or get_distance(obstacles, robotID)<=0 or (not check_bounds(set_joint_pose)):
             return False, set_joint_pose
     return True, set_joint_pose
 
 
-def try_start_location(robotID, jointsID, obstacles):
+def try_start_location(client_obj, robotID, jointsID, obstacles):
     '''
     Attempts to place robot at random goal location.
     :param robotID: pybullet ID of the robot.
@@ -194,7 +194,7 @@ def try_start_location(robotID, jointsID, obstacles):
     '''
     random_pose = (q_min + (q_max-q_min)*np.random.rand(7))[0]
     random_pose[6] = 1.9891
-    set_position(robotID, jointsID, random_pose)
+    set_position(client_obj, robotID, jointsID, random_pose)
     if check_self_collision(robotID) or get_distance(obstacles, robotID)<=0:
         return False
     return True
@@ -281,10 +281,10 @@ def start_experiment_rrt(client_id, start, samples, fileDir, pandaID, jointsID, 
             valid_goal, goal_joints = try_target_location(client_id, pandaID, jointsID, all_obstacles)
 
         # get start location
-        valid_start = try_start_location(pandaID, jointsID, all_obstacles)
+        valid_start = try_start_location(client_id, pandaID, jointsID, all_obstacles)
         while not valid_start:
-            valid_start = try_start_location(pandaID, jointsID, all_obstacles)
-        start_joints = get_joint_position(pandaID, jointsID)
+            valid_start = try_start_location(client_id, pandaID, jointsID, all_obstacles)
+        start_joints = get_joint_position(client_id, pandaID, jointsID)
 
         start_state = get_ompl_state(space, start_joints)
         goal_state = get_ompl_state(space, goal_joints)
