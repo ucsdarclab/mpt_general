@@ -282,10 +282,10 @@ def get_pybullet_server(connection_type):
         p = bc.BulletClient(pyb.DIRECT)
     elif connection_type=='gui':
         p = bc.BulletClient(pyb.GUI, options='--background_color_red=1.0 --background_color_green=1.0 --background_color_blue=1.0')
-        p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0, lightPosition = [0, 0, 5])
+        p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0)
     else:
         raise TypeError
-
+    p.setGravity(0, 0, -9.81)
     pyb.setAdditionalSearchPath(pybullet_data.getDataPath())
     return p
 
