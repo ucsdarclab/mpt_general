@@ -73,7 +73,7 @@ def set_dual_robot_vis(client_obj, pose, rgbaColor):
     # Spawn the robots.
     robot1_vis_ids, robot2_vis_ids = set_vis_dual_robot(client_obj)
     # Get the joint info
-    numLinkJoints = pyb.getNumJoints(robot1_vis_ids[0])
+    numLinkJoints = client_obj.getNumJoints(robot1_vis_ids[0])
     # Change the color of the robot.
     for j in range(numLinkJoints):
         client_obj.changeVisualShape(robot1_vis_ids[0], j, rgbaColor=rgbaColor)
