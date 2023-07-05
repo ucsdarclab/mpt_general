@@ -22,22 +22,22 @@ try:
 except ImportError:
     raise "Run code from a container with OMPL installed"
 
+import torch
 from torch.distributions import MultivariateNormal
+import torch_geometric.data as tg_data
+
+import open3d as o3d
+import json
+
 from ompl_utils import get_ompl_state, get_numpy_state
 
-# Contact-GraspNet imports!!
-import sys
-BASE_DIR = '/root/third_party/contact_graspnet'
-sys.path.append(osp.join(BASE_DIR, 'contact_graspnet'))
+# VQ-MPT model 
+from modules.quantizers import VectorQuantizer
+from modules.decoder import DecoderPreNormGeneral
+from modules.encoder import EncoderPreNorm
+from modules.autoregressive import AutoRegressiveModel, EnvContextCrossAttModel
 
-import tensorflow.compat.v1 as tf
-tf.disable_eager_execution()
-physical_devices = tf.config.experimental.list_physical_devices('GPU')
-tf.config.experimental.set_memory_growth(physical_devices[0], True)
-
-from contact_grasp_estimator import GraspEstimator
-import config_utils
-from visualization_utils import visualize_grasps
+import eval_const_7d as ec7
 
 def add_debug_point(client_id, pose):
     colors = np.zeros_like(pose)
@@ -45,22 +45,22 @@ def add_debug_point(client_id, pose):
     obj_id = client_id.addUserDebugPoints(pose, colors, 25)
     return obj_id
 
-def panda_reset_open_gripper(robotID, gripper_dist=0.02):
+def panda_reset_open_gripper(client_id, robotID, gripper_dist=0.02):
     '''
     Open the grippers for the panda robot.
     :param robotID: pybullet robot id for the panda arm.
     :param gripper_dis: distance between the gripper.
     '''
-    pyb.resetJointState(robotID, 9, gripper_dist/2)
-    pyb.resetJointState(robotID, 10, gripper_dist/2)
+    client_id.resetJointState(robotID, 9, gripper_dist/2)
+    client_id.resetJointState(robotID, 10, gripper_dist/2)
 
-def panda_reset_close_gripper(robotID):
+def panda_reset_close_gripper(client_id, robotID):
     '''
     Close the grippers for the panda robot.
     :param robotID: pybullet robot id for the panda arm.
     '''
-    pyb.resetJointState(robotID, 9, 0.0)
-    pyb.resetJointState(robotID, 10, 0.0)
+    client_id.resetJointState(robotID, 9, 0.0)
+    client_id.resetJointState(robotID, 10, 0.0)
 
 def panda_close_gripper(clientID, robotID):
     '''
@@ -72,10 +72,36 @@ def panda_close_gripper(clientID, robotID):
         robotID,
         [9, 10],
         pyb.VELOCITY_CONTROL,
-        targetVelocities=-np.ones(2)*0.05
+        targetVelocities=-np.ones(2)*0.1
     )
 
-def get_IK_pose(robotID, jointsID, ee_pose, ee_orient, init_q=None, link_id=11):
+def panda_open_gripper(clientID, robotID, gripper_dist=0.01):
+    '''
+    Close the gripper using velocity control.
+    :param clientID: pybullet client id.
+    :param robotID: pybullet robot id for the panda arm.
+    '''
+    clientID.setJointMotorControlArray(
+        robotID,
+        [9, 10],
+        pyb.POSITION_CONTROL,
+        targetPositions=np.ones(2)*gripper_dist
+    )
+
+def panda_stop_gripper(clientID, robotID):
+    '''
+    Send zero velocity to the gripper.
+    :param clientID: bullet client id.
+    :param robotID: pybullet robot id.
+    '''
+    clientID.setJointMotorControlArray(
+        robotID,
+        [9, 10],
+        pyb.VELOCITY_CONTROL,
+        targetVelocities=np.zeros(2)
+    )
+
+def get_IK_pose(client_id, robotID, jointsID, ee_pose, ee_orient, init_q=None, link_id=11):
     '''
     Find the robot joint values for the given end-effector pose.
     :param robotID:
@@ -86,17 +112,17 @@ def get_IK_pose(robotID, jointsID, ee_pose, ee_orient, init_q=None, link_id=11):
     if init_q is None:
         init_q = (pu.q_min+np.random.rand(7)*(pu.q_max-pu.q_min))[0]
     q = init_q
-    pu.set_position(robotID, jointsID, q)
+    pu.set_position(client_id, robotID, jointsID, q)
     attempt = 0
-    while np.linalg.norm(np.array(pyb.getLinkState(robotID, link_id)[0])-ee_pose)>1e-4:
-        q = p.calculateInverseKinematics(
+    while np.linalg.norm(np.array(client_id.getLinkState(robotID, link_id)[0])-ee_pose)>1e-4:
+        q = client_id.calculateInverseKinematics(
             robotID,
             link_id,
             ee_pose,
             ee_orient,
             maxNumIterations=75
         )
-        pu.set_position(robotID, jointsID, q)
+        pu.set_position(client_id, robotID, jointsID, q)
         attempt +=1
         if attempt>5:
             return q, False
@@ -104,9 +130,14 @@ def get_IK_pose(robotID, jointsID, ee_pose, ee_orient, init_q=None, link_id=11):
 
 from tracikpy import TracIKSolver
 
-def get_IK_posev2(robotID, jointsID, eeT):
+def get_IK_posev2(client_id, robotID, jointsID, eeT, q_init=None):
     '''
     Find the robot joint values for the given end-effector pose using
+    Options for IK solver:
+    Speed: returns very quickly the first solution found
+    Distance: runs for the full timeout_in_secs, then returns the solution that minimizes SSE from the seed
+    Manipulation1: runs for full timeout, returns solution that maximizes sqrt(det(J*J^T)) (the product of the singular values of the Jacobian)
+    Manipulation2: runs for full timeout, returns solution that minimizes the ratio of min to max singular values of the Jacobian.
     TracIKSolver.
     :param robotID: 
     :param jointsID:
@@ -115,13 +146,16 @@ def get_IK_posev2(robotID, jointsID, eeT):
     ik_solver = TracIKSolver(
         "assets/franka_panda/franka_panda.urdf",
         "panda_link0",
-        "panda_hand"
+        "panda_hand",
+        # "panda_rightfinger",
+        timeout=0.1,
+        solve_type='Distance'
     )
-    qout = ik_solver.ik(eeT)
+    qout = ik_solver.ik(eeT, q_init)
     if qout is None:
         qout = (pu.q_min+np.random.rand(7)*(pu.q_max-pu.q_min))[0]
         return qout, False
-    pu.set_position(robotID, jointsID, qout)
+    pu.set_position(client_id, robotID, jointsID, qout)
     return qout, True
 
 GRIPPER_LENGTH = 0.1
@@ -181,16 +215,12 @@ class StateSamplerRegion(ob.StateSampler):
         '''
         index = 0
         random_samples = np.random.permutation(self.X.sample()*(self.q_max-self.q_min)+self.q_min)
-        random_samples[:, 6] = 0.0
-        # random_samples[:, 6] = 1.9891
 
         while True:
             yield random_samples[index, :]
             index += 1
             if index==self.seq_num:
                 random_samples = np.random.permutation(self.X.sample()*(self.q_max-self.q_min)+self.q_min)
-                random_samples[:, 6] = 0.0
-                # random_samples[:, 6] = 1.9891
                 index = 0
                 
     def sampleUniform(self, state):
@@ -199,8 +229,6 @@ class StateSamplerRegion(ob.StateSampler):
         '''
         if self.X is None:
             sample_pos = ((self.q_max-self.q_min)*self.U.rvs()+self.q_min)[0]
-            sample_pos[6] = 0.0
-            # sample_pos[6] = 1.9891
         else:
             sample_pos = next(self.get_random_samples())
         for i, val in enumerate(sample_pos):
@@ -283,6 +311,82 @@ def get_path(start, goal, validity_checker_obj, dist_mu=None, dist_sigma=None):
     return path, plan_time, numVertices, success
 
 
+def get_camera_matrix(camTheta, camPhi):
+    '''
+    Randomly sample camera positions from different angles, and positions
+    :param camTheat: yaw angle of camera.
+    :param camPhi: pitch angle of camera.
+    :returns (np.array, np.array, np.array): Returns the view and projection Matrix.
+    '''
+    # Randomly sample camera positions
+    camR = 2
+    cameraEyePosition = np.r_[(
+        camR*np.cos(camPhi)*np.cos(camTheta),
+        camR*np.cos(camPhi)*np.sin(camTheta),
+        camR*np.sin(camPhi)
+    )]
+    # The camera Up Vector is perpendicular to the EyePosition vector
+    # and tangent to the sphere.
+    cameraUpVector = np.r_[(
+        -cameraEyePosition[0],
+        -cameraEyePosition[1],
+        (cameraEyePosition[0]**2+cameraEyePosition[1]**2)/cameraEyePosition[2]
+    )] 
+    cameraUpVector = cameraUpVector/np.linalg.norm(cameraUpVector)
+
+    viewMatrix = pyb.computeViewMatrix(
+        cameraEyePosition=cameraEyePosition,
+        cameraTargetPosition=[0, 0, 0],
+        cameraUpVector=cameraUpVector
+    )
+
+    # Projection Matrix
+    projectionMatrix = pyb.computeProjectionMatrixFOV(
+        fov=45.0,
+        aspect=1.0,
+        nearVal=1,
+        farVal=5.1
+    )
+    return viewMatrix, projectionMatrix, cameraEyePosition
+
+def getCameraDepthImage(client_id, camTheta, camPhi):
+    '''
+    return the depth image by having the camera for the desired pose.
+    :param client_id: pybullet client id
+    :param camTheta: yaw angle of camera
+    :param camPhi: pitch angle of camera.
+    :returns (np.array, int, int, np.array): depth image, height, width, world_to_pix transformation.
+    '''
+    viewMatrix, projMatrix,  _ = get_camera_matrix(camTheta, camPhi)
+    width, height, rgbImg, depthImg, _ = client_id.getCameraImage(width=224, height=224, viewMatrix=viewMatrix, projectionMatrix=projMatrix)
+    vM = np.reshape(viewMatrix, (4, 4), order='F')
+    pM = np.reshape(projMatrix, (4, 4), order='F')
+    tran_pix_world = np.linalg.inv(pM@vM)
+    return np.array(depthImg), np.array(rgbImg), height, width, tran_pix_world
+
+
+# bounding_box = o3d.geometry.AxisAlignedBoundingBox(np.ones(3)*-1.2, np.ones(3)*1.2)
+bounding_box = o3d.geometry.AxisAlignedBoundingBox([-0.88, -0.88, -.4], [0.88, 0.88, 1.2])
+def get_pcd(client_id):
+    '''
+    Using virtual cameras generate a PCD
+    :param client_id: pybullet client ID.
+    :return open3d.geometry.PointCloud: open3d pc object.
+    '''
+    pcdCollection = []
+    for phi in [40*np.pi/180, -40*np.pi/180]:
+        # for theta in [np.pi/4,-np.pi/4, 3*np.pi/4, -3*np.pi/4]:
+        for theta in [3*np.pi/4, -3*np.pi/4]:
+            depthImg, colorImg, height, width, tran_pix_world = getCameraDepthImage(client_id, theta, phi)
+            pcd = depth2pc_opengl(depthImg, tran_pix_world, height, width)
+            pcdCollection.append(pcd)
+    pcdAllPoints = o3d.geometry.PointCloud()
+    pcdAllPoints.points = o3d.utility.Vector3dVector(np.concatenate(pcdCollection))
+    # Cropped point cloud, NOTE: This can be reduced further!!
+    cropped_pcd = pcdAllPoints.crop(bounding_box)
+    # return cropped_pcd.random_down_sample(0.4)
+    return cropped_pcd.random_down_sample(0.7)
+
 def follow_trajectory(client_id, robotID, jointsID, q_traj):
     '''
     :param client_id: bullet client object.
@@ -292,25 +396,21 @@ def follow_trajectory(client_id, robotID, jointsID, q_traj):
     '''
     for q_i in q_traj[:]:
         # Get the current joint state
-        j_c = np.array(list(
-            map(lambda x: x[0], client_id.getJointStates(robotID, jointsID))
-        ))
+        j_c = pu.get_joint_position(client_id, robotID, jointsID)
         count = 0
         # Apply control till robot reaches final goal, or after 10
         # position updates
         while np.linalg.norm(j_c-q_i)>1e-2 and count<10:
-            p.setJointMotorControlArray(
+            client_id.setJointMotorControlArray(
                 robotID,
                 jointsID,
                 pyb.POSITION_CONTROL,
                 targetPositions=q_i
             )
             client_id.stepSimulation()
-            time.sleep(0.1)
+            time.sleep(0.01)
             # Update current position
-            j_c = np.array(list(
-                map(lambda x: x[0], client_id.getJointStates(robotID, jointsID))
-            ))
+            j_c = pu.get_joint_position(client_id, robotID, jointsID)
             count += 1
 
 def set_env(client_id):
@@ -344,383 +444,276 @@ def set_env(client_id):
     path_to_urdf = osp.join(ycb_objects.getDataPath(), obj_name, "model.urdf")
     # # Goal position of the object
     # itm_id = p.loadURDF(path_to_urdf, [0.3, -0.5, 0.171])
+    # NOTE: Currently hold-off on loading objects!!
     # Start postion of the object
-    itm_id = client_id.loadURDF(path_to_urdf, [0.555, -0.385, 0.642])
+    # itm_id = client_id.loadURDF(path_to_urdf, [0.555, -0.385, 0.642])
+    itm_id = -1
     return all_obstacles, itm_id
 
+from time import perf_counter
 
+class Timer:
+    '''
+    From https://realpython.com/python-with-statement/#performing-high-precision-calculations
+    '''
+    def __enter__(self):
+        self.start = perf_counter()
+        self.end = 0.0
+        return lambda: self.end - self.start
+
+    def __exit__(self, *args):
+        self.end = perf_counter()
 
 if __name__=="__main__":
+    seed = 100
+    use_model = True
     # Server for collision checking
     p_collision = pu.get_pybullet_server('direct')
-    # Server for visualization
-    p = pu.get_pybullet_server('gui')
-    # p = pu.get_pybullet_server('direct')
+    # Server for collision checking
+    p_pcd = pu.get_pybullet_server('direct')
+    # Server for visualization/execution
+    # p = pu.get_pybullet_server('gui')
+    p = pu.get_pybullet_server('direct')
 
     p.resetDebugVisualizerCamera(1.8, -28.6, -33.6, np.array([0.0, 0.0, 0.0]))
     # p.setPhysicsEngineParameter(enableConeFriction=0)
     p.setAdditionalSearchPath(osp.join(os.getcwd(), 'assets'))
 
-    # Set up environment for simulation
-    all_obstacles, itm_id = set_env(p)
-    # Set uip environment for collision checking
-    all_obstacles_coll, itm_id_coll = set_env(p_collision)
+        # ============== Load VQ-MPT Model ======================
+    dict_model_folder = '/root/data/general_mpt_panda_7d/model1'
+    ar_model_folder = '/root/data/general_mpt_panda_7d/stage2/model1'
+    device = torch.device('cuda') if torch.cuda.is_available() else 'cpu'
 
-    # Open the shelf
-    shelf_index = 29
-    p.resetJointState(all_obstacles[0], shelf_index-2, -1.57)
-    p_collision.resetJointState(all_obstacles_coll[0], shelf_index-2, -1.57)
+    # Define the models
+    d_model = 512
+    #TODO: Get the number of keys from the saved data
+    num_keys = 2048
+    goal_index = num_keys + 1
+    quantizer_model = VectorQuantizer(n_e=num_keys, e_dim=8, latent_dim=d_model)
 
-    # while True:
-    #     p.stepSimulation()
+    # Load quantizer model.
+    dictionary_model_folder = dict_model_folder
+    with open(osp.join(dictionary_model_folder, 'model_params.json'), 'r') as f:
+        dictionary_model_params = json.load(f)
 
-    # table = p.loadURDF('table/table.urdf',[1.0,0,0], p.getQuaternionFromEuler([0,0,1.57]), useFixedBase=True)
-    # drawer_to_joint_id = {
-    #     1: 18, 
-    #     2: 22, 
-    #     3: 27, 
-    #     4: 31,
-    #     5: 37, 
-    #     6: 40, 
-    #     7: 48, 
-    #     8: 53, 
-    #     9: 56, 
-    #     10: 58, 
-    #     11: 14
-    # }
-    # drawer_to_joint_limits = {
-    #     1: (0, 1.57), 
-    #     2: (-1.57, 0), 
-    #     3: (-1.57, 0), 
-    #     4: (0, 1.57),
-    #     5: (0.0, 0.4), 
-    #     6: (0.0, 0.4), 
-    #     7: (0, 1.57), 
-    #     8: (-1.57, 0), 
-    #     9: (0.0, 0.4), 
-    #     10: (0.0, 0.4), 
-    #     11: (0, 1.57)
-    # }
-    # all_joint_names = [
-    #     pyb.getJointInfo(kitchen, i)[1].decode('utf-8')
-    #     for i in range(pyb.getNumJoints(kitchen))
-    # ]
-    # handle_ids = [
-    #     (i, pyb.getJointInfo(kitchen, i)[1].decode("utf-8")) 
-    #     for i in range(pyb.getNumJoints(kitchen))
-    #     if 'handle' in pyb.getJointInfo(kitchen, i)[1].decode("utf-8")
-    # ]
-
-    # Load the interactive robot
-    pandaID, jointsID, fingerID = pu.set_robot(p)
-    # Load the collision checking robot
-    pandaID_col, jointsID_col, fingerID_col = pu.set_robot(p_collision)
-    
-    # # Set up the camera:
-    view_matrix = pyb.computeViewMatrix(
-        # cameraEyePosition=[-0.6, -0.6, 0.8],
-        cameraEyePosition=[-0.6, -0.5, 0.7],
-        cameraTargetPosition=[0.5, -0.4, 0.15],
-        cameraUpVector=[0., 0., 1]
+    encoder_model = EncoderPreNorm(**dictionary_model_params)
+    decoder_model = DecoderPreNormGeneral(
+        e_dim=dictionary_model_params['d_model'], 
+        h_dim=dictionary_model_params['d_inner'], 
+        c_space_dim=dictionary_model_params['c_space_dim']
     )
-    # # For shelf placing
-    # view_matrix = pyb.computeViewMatrix(
-    #     cameraEyePosition=[-0.6, -0.4, 1.271],
-    #     cameraTargetPosition=[0.5, -0.4, 0.721],
-    #     cameraUpVector=[0., 0., 1]
-    # )
-    fov = 45
-    height = 512
-    width = 512
-    aspect = width/height
-    near=0.02
-    far=3
-    projection_matrix = p.computeProjectionMatrixFOV(fov, aspect, near, far)
 
-    _, _, rgb_img, depth_img, seg_img = p.getCameraImage(width,
-                                height,
-                                view_matrix,
-                                projection_matrix)
+    checkpoint = torch.load(osp.join(dictionary_model_folder, 'best_model.pkl'))
     
-    # ================== Trajectory planning =================
-    with open('shelf_reach_q.pkl', 'rb') as f:
-        data = pickle.load(f)
-        can_start_q = data['start_q']
-    with open('shelf_target_q.pkl', 'rb') as f:
-        data = pickle.load(f)
-        can_goal_q = data['goal_q']
+    # Load model parameters and set it to eval
+    for model, state_dict in zip([encoder_model, quantizer_model, decoder_model], ['encoder_state', 'quantizer_state', 'decoder_state']):
+        model.load_state_dict(checkpoint[state_dict])
+        model.eval()
+        model.to(device)
 
-    # Open panda gripper - 
-    panda_reset_open_gripper(pandaID, gripper_dist=0.1)
+    # Load the AR model.
+    # NOTE: Save these values as dictionary in the future, and load as json.
+    env_params = {
+        'd_model': dictionary_model_params['d_model'],
+    }
+    # Create the environment encoder object.
+    with open(osp.join(ar_model_folder, 'cross_attn.json'), 'r') as f:
+        context_env_encoder_params = json.load(f)
+    context_env_encoder = EnvContextCrossAttModel(env_params, context_env_encoder_params, robot='6D')
+    # Create the AR model
+    with open(osp.join(ar_model_folder, 'ar_params.json'), 'r') as f:
+        ar_params = json.load(f)
+    ar_model = AutoRegressiveModel(**ar_params)
 
-    # Define OMPL plannner
-    # Planning parameters
-    space = ob.RealVectorStateSpace(7)
-    bounds = ob.RealVectorBounds(7)
-    # Set joint limits
-    for i in range(7):
-        bounds.setHigh(i, pu.q_max[0, i])
-        bounds.setLow(i, pu.q_min[0, i])
-    space.setBounds(bounds)
-    si = ob.SpaceInformation(space)
-    
-    # Define collison checker.
-    validity_checker_obj = pu.ValidityCheckerDistance(
-        p_collision,
-        si, 
-        all_obstacles_coll,
-        pandaID_col,
-        jointsID_col
-    )
-    # Plan a trajectory from handle grasp to can
-    with open(f'handle_{shelf_index}_traj.pkl', 'rb') as f:
-        data = pickle.load(f)
-        cupboard_open_traj = np.array(data['traj'])
-        tmp_start_q = cupboard_open_traj[-1]
-        tmp_start_q[6] = tmp_start_q[6]-2*np.pi
-    path_cupboard_2_can, _, _, success = get_path(tmp_start_q, can_start_q, validity_checker_obj)
-    pu.set_position(p, pandaID, jointsID, path_cupboard_2_can[0])
-    follow_trajectory(p, pandaID, jointsID, path_cupboard_2_can)
-
-    # Plan a trajectory from grasp point to table
-    path_can, _, _, success = get_path(can_start_q, can_goal_q, validity_checker_obj)
-    # pu.set_position(pandaID, jointsID, path_can[0])
-    # Close the gripper
-    for _ in range(200):
-        panda_close_gripper(p, pandaID)
-        p.stepSimulation()
-    follow_trajectory(p, pandaID, jointsID, path_can)
-    # for p_i in path:
-    #     pu.set_position(pandaID, jointsID, p_i)
-    #     time.sleep(0.1)
-    
-    # # ================ Grasping code. ======================
-    # vM = np.reshape(view_matrix, (4, 4), order='F')
-    # pM = np.reshape(projection_matrix, (4, 4), order='F')
-    # tran_pix_world = np.linalg.inv(pM@vM)
-    
-    # # Get point cloud data from depth.
-    # pcd = depth2pc_opengl(depth_img, tran_pix_world, height, width)
-    
-    # # Contact-GraspNet chkpt
-    # ckpt_dir = '/root/third_party/models/scene_test_2048_bs3_hor_sigma_0025'
-    # forward_passes = 5
-    # global_config = config_utils.load_config(ckpt_dir, batch_size=forward_passes)
-    # # Build the model
-    # grasp_estimator = GraspEstimator(global_config)
-    # grasp_estimator.build_network()
-    # # Add ops to save and restore all the variables.
-    # saver = tf.train.Saver(save_relative_paths=True)
-    # # Create a session
-    # config = tf.ConfigProto()
-    # config.gpu_options.allow_growth = True
-    # config.allow_soft_placement = True
-    # sess = tf.Session(config=config)
-    # # Load weights
-    # grasp_estimator.load_weights(sess, saver, ckpt_dir, mode="test")
-    # # NOTE: Produced grasps are in camera frame!!
-
-    # # Translate pcd (world frame) to camera frame
-    # view_pcd = (np.c_[pcd, np.ones(pcd.shape[0])]@vM.T)[:, :3]
-    # # Rotate OpenGL co-ordinates to CV format
-    # R_VM_2_CV = np.array([
-    #     [1, 0, 0],
-    #     [0, -1.0, 0],
-    #     [0, 0, -1.0]
-    # ])
-    # cv_pcd = view_pcd@R_VM_2_CV.T
-    # pc_segmap = seg_img.ravel(order='C')
-    # pc_segments = {}
-    # for i in np.unique(pc_segmap):
-    #     if i == 0:
-    #         continue
-    #     else:
-    #         pc_segments[i] = cv_pcd[pc_segmap == i]
-    # # Predict grasping points
-    # pred_grasps_cam, scores, contact_pts, _ = grasp_estimator.predict_scene_grasps(
-    #     sess,
-    #     cv_pcd,
-    #     pc_segments=pc_segments,
-    #     local_regions=True,
-    #     filter_grasps=True,
-    #     forward_passes=forward_passes,
-    # )
-    # pc_colors = rgb_img[:, :, :3].reshape(-1, 3)
-    # # Rotate along z-axis the grasp orientation (in the grasp frame)
-    # # by 180deg.
-    # inverted_pred_grasps = {}
-    # inv_T = np.eye(4)
-    # inv_T[0, 0] = -1.0
-    # inv_T[1, 1] = -1.0
-    # for key in pred_grasps_cam.keys():
-    #     inverted_pred_grasps[key] = pred_grasps_cam[key]@inv_T[None, :, :]
-    
-    # # Visualize PC and grasping data.
-    # # visualize_grasps(cv_pcd, pred_grasps_cam, scores, pc_colors=pc_colors, plot_opencv_cam=True)
-    # visualize_grasps(cv_pcd, inverted_pred_grasps, scores, pc_colors=pc_colors, plot_opencv_cam=True)
-    
-    # # ========== Find a grasp for which an IK exists ========================
-    # panda_reset_open_gripper(pandaID, gripper_dist=0.1)
-    # grasp_index_asc = np.argsort(scores[3])[::-1]
-    # for grasp_index in grasp_index_asc:
-    #     # OpenCV to grasp 
-
-    #     T_CV_G = pred_grasps_cam[3][grasp_index]
-    #     # Camera co-ordinate to grasp
-    #     T_C_G = np.r_[R_VM_2_CV.T@T_CV_G[:3, :], np.array([[0, 0, 0, 1.0]])]
-    #     # In future use better ways to invert transformation matrix.
-    #     T_W_G = np.linalg.inv(vM)@T_C_G
-
-    #     grasp_orient = Rot.from_matrix(T_W_G[:3, :3]).as_quat()
-    #     # Find IK for the given tranformation:
-    #     # q, solved = get_IK_pose(pandaID, jointsID, ee_pose=T_W_G[:3, 3], ee_orient=grasp_orient, link_id=8)
-    #     q, solved = get_IK_posev2(pandaID, jointsID, T_W_G)
-    #     if solved:
-    #         break
-    #     # Check if grasp exists for inverted orientation
-    #     print("Checking for inverted grasp")
-    #     # OpenCV to grasp 
-    #     T_CV_G = inverted_pred_grasps[3][grasp_index]
-    #     # Camera co-ordinate to grasp
-    #     T_C_G = np.r_[R_VM_2_CV.T@T_CV_G[:3, :], np.array([[0, 0, 0, 1.0]])]
-    #     # In future use better ways to invert transformation matrix.
-    #     T_W_G = np.linalg.inv(vM)@T_C_G
+    # Load the parameters and set the model to eval
+    checkpoint = torch.load(osp.join(ar_model_folder, 'best_model.pkl'))
+    for model, state_dict in zip([context_env_encoder, ar_model], ['context_state', 'ar_model_state']):
+        model.load_state_dict(checkpoint[state_dict])
+        model.eval()
+        model.to(device)
+    run_data = []
+    for _ in range(5):
+        print("Resetting Simulation")
+        for client_id in [p, p_pcd, p_collision]:
+            client_id.resetSimulation()
         
-    #     grasp_orient = Rot.from_matrix(T_W_G[:3, :3]).as_quat()
-    #     # Find IK for the given tranformation:
-    #     # q, solved = get_IK_pose(pandaID, jointsID, ee_pose=T_W_G[:3, 3], ee_orient=grasp_orient, link_id=8)
-    #     q, solved = get_IK_posev2(pandaID, jointsID, T_W_G)
-    #     if solved:
-    #         break
-    # ========================================================================
-    # Find the "BEST" grasp with the highest scores for objects on the shelf:
-    # grasp_index = np.argmax(scores[3]) # Index 3 is the chips can
-    # T_CV_G = pred_grasps_cam[3][grasp_index]
-    # T_C_G = np.r_[R_VM_2_CV.T@T_CV_G[:3, :], np.array([[0, 0, 0, 1.0]])]
-    # # In future use better ways to invert transformation matrix.
-    # T_W_G = np.linalg.inv(vM)@T_C_G
-    
-    # # Find IK for the given tranformation:
-    # panda_reset_open_gripper(pandaID, gripper_dist=0.1)
-    # grasp_orient = Rot.from_matrix(T_W_G[:3, :3]).as_quat()
-    # solved = False
-    # while not solved:
-    #     q, solved = get_IK_pose(pandaID, jointsID, ee_pose=T_W_G[:3, 3], ee_orient=grasp_orient, link_id=8)
-    # ============================== best grasp ==============================
+        timing_dict = {}
+        # Set up environment for simulation
+        all_obstacles, itm_id = set_env(p)
+        kitchen = all_obstacles[0]
+        # Set up environment for collision checking
+        all_obstacles_coll, itm_id_coll = set_env(p_collision)
+        # Set up environment for capturing pcd
+        all_obstacles_pcd, itm_id_pcd = set_env(p_pcd)
 
-    # ---------------------------- end-of-grasping --------------------------------
-    
-    # # Save data for testing.
-    # with open('depth_img.pkl', 'wb') as f:
-    #     pickle.dump(
-    #     {
-    #         'rbg_img': rgb_img,
-    #         'depth_img': depth_img,
-    #         'seg_img': seg_img,
-    #         'near': near,
-    #         'far': far
-    #     }, f)
-    # # Identify grasping locations:
-    # while True:
-    #     p.stepSimulation()
-    #============================ Trajectories for opening/closing the shelf ===================
-    # # Identify grasping locations within the scene
-    # # NOTE: Left/Right are viwed after the kitchen is rotated by 180 around z-axis.
-    # # Hence there may be a discrepancy w/ the name of the joint and definitions here
-    # # Left draw handles - 39(top), 42(bottom)
-    # # Left top cupboards - 20(right), 24(middle), 16 (left)
-    # # Right draw handles - 57(top), 59(bottom)
-    # # Right top cupboards - 33(right), 29 (left)
+        # Load the interactive robot
+        pandaID, jointsID, fingerID = pu.set_robot(p)
+        # Load the collision checking robot
+        pandaID_col, jointsID_col, fingerID_col = pu.set_robot(p_collision)
+        
+        # ============== Get PCD ===========
+        pcd = get_pcd(p_pcd)
 
-    # # construct a trajectory for the draw
-    # # open draw trajectory
-    # link_index = 29
+        # ============== Trajectory planning =================
+        # Define OMPL parameters
+        space = ob.RealVectorStateSpace(7)
+        bounds = ob.RealVectorBounds(7)
+        # Set joint limits
+        for i in range(7):
+            bounds.setHigh(i, pu.q_max[0, i])
+            bounds.setLow(i, pu.q_min[0, i])
+        space.setBounds(bounds)
+        si = ob.SpaceInformation(space)
+        
+        # Define collison checker.
+        validity_checker_obj = pu.ValidityCheckerDistance(
+            p_collision,
+            si, 
+            all_obstacles_coll,
+            pandaID_col,
+            jointsID_col
+        )
+        door_link_index = 29
+        
+        with open(f'handle_{door_link_index}_traj.pkl', 'rb') as f:
+            data = pickle.load(f)
+            # Open trajectory
+            q_traj = np.array(data['traj'])
+        panda_reset_open_gripper(p, pandaID, gripper_dist=0.1)
+        panda_reset_open_gripper(p_collision, pandaID_col, gripper_dist=0.1)
+
+        np.random.seed(seed)
+        # Randomly sample a collision free start point.
+        initial_config = (pu.q_min + (pu.q_max-pu.q_min)*np.random.rand(7))[0]
+        pu.set_position(p_collision, pandaID_col, jointsID_col, initial_config)
+        while pu.get_distance(p_collision, all_obstacles_coll, pandaID_col)<0. or pu.check_self_collision(p_collision, pandaID_col):
+            initial_config = (pu.q_min + (pu.q_max-pu.q_min)*np.random.rand(7))[0]
+            pu.set_position(p_collision, pandaID_col, jointsID_col, initial_config)
+        pu.set_position(p, pandaID, jointsID, initial_config)
+        # Plan a trajectory from initial config to cupboard handle grasp location.
+        goal_q = q_traj[0]
+        if use_model:
+            n_start_n_goal = (np.r_[initial_config[None, :], goal_q[None, :]]-pu.q_min)/(pu.q_max-pu.q_min)
+            map_data = tg_data.Data(pos=torch.as_tensor(np.asarray(pcd.points), dtype=torch.float, device=device))
+            search_dist_mu, search_dist_sigma, _ = ec7.get_search_dist(
+                n_start_n_goal, 
+                None, 
+                map_data, 
+                context_env_encoder, 
+                decoder_model, 
+                ar_model, 
+                quantizer_model, 
+                num_keys
+            )
+        else:
+            search_dist_mu, search_dist_sigma = None, None
+        with Timer() as timer:
+            traj_cupboard, _, _ , success = get_path(initial_config, goal_q, validity_checker_obj, search_dist_mu, search_dist_sigma)
+            follow_trajectory(p, pandaID, jointsID, traj_cupboard)
+        timing_dict['cupboard_handle_reach'] = timer()
+
+        j_c = pu.get_joint_position(p, pandaID, jointsID)
+        while np.linalg.norm(j_c-goal_q)<1e-12:
+            p.setJointMotorControlArray(
+                pandaID,
+                jointsID,
+                pyb.POSITION_CONTROL,
+                targetPositions=goal_q
+            )
+            p.stepSimulation()
+            j_c = pu.get_joint_position(p, pandaID, jointsID)
+        
+        for _ in range(100):
+            p.stepSimulation()
+        for _ in range(100):
+            panda_close_gripper(p, pandaID)
+            p.stepSimulation()
+        for _ in range(100):
+            p.stepSimulation()
+        follow_trajectory(p, pandaID, jointsID, q_traj)
+        
+        # Open panda gripper
+        panda_open_gripper(p, pandaID, 0.1)
+        p.stepSimulation()
+        
+        gripper_joint_state = p.getJointState(pandaID, 10)[0]
+        panda_reset_open_gripper(p_collision, pandaID_col, gripper_dist=2*gripper_joint_state)
+
+        # Sync collision and pcd env
+        cupboard_joint_state = p.getJointState(kitchen, door_link_index-2)[0]
+        p_collision.resetJointState(all_obstacles_coll[0], door_link_index-2, cupboard_joint_state)
+        p_pcd.resetJointState(all_obstacles_pcd[0], door_link_index-2, cupboard_joint_state)
+
+        # Sync gripper.
+        panda_reset_open_gripper(p_collision, pandaID_col, 0.1)
+
+        with open('shelf_reach_q.pkl', 'rb') as f:
+            data = pickle.load(f)
+            can_start_q = data['start_q']
+        with open('shelf_target_q.pkl', 'rb') as f:
+            data = pickle.load(f)
+            can_goal_q = data['goal_q']
+
+        tmp_start_q = pu.get_joint_position(p, pandaID, jointsID)
+        
+        if use_model:
+            pcd = get_pcd(p_pcd)
+            n_start_n_goal = (np.r_[tmp_start_q[None, :], can_start_q[None, :]]-pu.q_min)/(pu.q_max-pu.q_min)
+            map_data = tg_data.Data(pos=torch.as_tensor(np.asarray(pcd.points), dtype=torch.float, device=device))
+            search_dist_mu, search_dist_sigma, _ = ec7.get_search_dist(
+                n_start_n_goal, 
+                None, 
+                map_data, 
+                context_env_encoder, 
+                decoder_model, 
+                ar_model, 
+                quantizer_model, 
+                num_keys
+            )
+        else:
+            search_dist_mu, search_dist_sigma = None, None
+
+        with Timer() as timer:
+            path_cupboard_2_can, _, _, success = get_path(tmp_start_q, can_start_q, validity_checker_obj, search_dist_mu, search_dist_sigma)
+            # Execute cupboard trajectory
+            follow_trajectory(p, pandaID, jointsID, path_cupboard_2_can)
+        timing_dict['can_reach'] = timer()
+
+        for _ in range(10):
+            p.stepSimulation()
+        # Close the gripper
+        for _ in range(200):
+            panda_close_gripper(p, pandaID)
+            p.stepSimulation()
+        # Plan a trajectory from grasp point to table
+        if use_model:
+            pcd = get_pcd(p_pcd)
+            n_start_n_goal = (np.r_[can_start_q[None, :], can_goal_q[None, :]]-pu.q_min)/(pu.q_max-pu.q_min)
+            map_data = tg_data.Data(pos=torch.as_tensor(np.asarray(pcd.points), dtype=torch.float, device=device))
+            search_dist_mu, search_dist_sigma, _ = ec7.get_search_dist(
+                n_start_n_goal, 
+                None, 
+                map_data, 
+                context_env_encoder, 
+                decoder_model, 
+                ar_model, 
+                quantizer_model, 
+                num_keys
+            )
+        else:
+            search_dist_mu, search_dist_sigma = None, None
+
+        with Timer() as timer:
+            path_can, _, _, success = get_path(can_start_q, can_goal_q, validity_checker_obj, search_dist_mu, search_dist_sigma)
+            follow_trajectory(p, pandaID, jointsID, path_can)
+        timing_dict['table_reach'] = timer()
+
+        run_data.append(timing_dict)
     
-    # shelf_traj = []
-    # shelf_orient = []
-    # panda_reset_close_gripper(pandaID)
-    # # For drawer
-    # for i in np.linspace(0, 0.35, 20):
-    #     link_joint_index = link_index-1
-    # # # For cupboard
-    # # for i in np.linspace(-1.57, 0, 40)[::-1]:
-    # #     link_joint_index = link_index-2
-    #     pyb.resetJointState(kitchen, link_joint_index, i)
-    #     shelf_traj.append(np.array(p.getLinkState(kitchen, link_index)[0]))
-    #     shelf_orient.append(np.array(p.getLinkState(kitchen, link_index)[1]))
-    # shelf_traj = np.array(shelf_traj)
-    # shelf_orient = np.array(shelf_orient)
-    # pyb.resetJointState(kitchen, link_joint_index, 0.0)
-    # for _ in range(10):
-    #     pyb.stepSimulation()
-    # # choose a handle pose that the robot can reach.
-    # handle_pose = np.array(pyb.getLinkState(kitchen, link_index)[0])
-    # # add_debug_point(p, handle_pose[None, :])
-    # # handle_orient = [0.0, np.pi/2, 0.0]
-    # # handle_orient_q = pyb.getQuaternionFromEuler(handle_orient)
-    # # For draw
-    # R_H_T = np.array(
-    #     [[0, 0, -1], [0, 1, 0], [1, 0, 0]]
-    # )
-    # # # For cabinet
-    # # R_H_T = np.array([
-    # #     [0, 0, -1], [0, -1, 0], [-1, 0, 0]
-    # # ])
-    # R_handle = Rot.from_quat(pyb.getLinkState(kitchen, link_index)[1])
-    # R_target = R_handle.as_matrix()@R_H_T
-    # handle_orient_q = Rot.from_matrix(R_target).as_quat()
-    # # handle_pose = handle_pose + np.array([-0.05, 0.0, 0.0])
-    # panda_reset_open_gripper(pandaID)
-    # # # find the joint angles that will open the draw
-    # # q_traj = []
-    # # q_i = None
-    # # for i, handle_pose in enumerate(shelf_traj):
-    # #     R_handle = Rot.from_quat(shelf_orient[i])
-    # #     R_target = R_handle.as_matrix()@R_H_T
-    # #     handle_orient_q = Rot.from_matrix(R_target).as_quat()
-    # #     q, _ = get_IK_pose(pandaID, jointsID, handle_pose, handle_orient_q, q_i)
-    # #     # Check if robot is in collision w/ itself or kitchen.
-    # #     while pu.get_distance(all_obstacles, pandaID)<0. or pu.check_self_collision(pandaID):
-    # #         q, _ = get_IK_pose(pandaID, jointsID, handle_pose, handle_orient_q, q_i)
-    # #     print(np.linalg.norm(np.array(pyb.getLinkState(pandaID, 11)[0])-handle_pose))
-    # #     q_i = q
-    # #     q_traj.append(np.array(q)[:7])
+    if use_model:
+        file_name = f'kitchen_timing_data_vqmpt_{seed}.pkl'
+    else:
+        file_name = f'kitchen_timing_data_{seed}.pkl'
     
-    # with open(f'handle_{link_index}_traj.pkl', 'wb') as f:
-    #     pickle.dump({'traj':q_traj}, f)
-    # pyb.resetJointState(kitchen, link_joint_index, 0.35)
-    # with open(f'handle_{link_index}_traj.pkl', 'rb') as f:
-    #     data = pickle.load(f)
-    # Open trajectory
-    # q_traj = data['traj']
-    # # Close trajectory
-    # q_traj = data['traj'][::-1]
-    # # execute the trajectory
-    # # # ------------- Move the robot ------------------------------------
-    # # Place the arm at the handle
-    # pu.set_position(pandaID, jointsID, q_traj[0])
-    # for _ in range(100):
-    #     panda_close_gripper(p, pandaID)
-    #     p.stepSimulation()
-    
-    # for q_i in q_traj[:]:
-    #     # pu.set_position(pandaID, jointsID, q_i)
-    #     # for j in range(50):            
-    #     #     # # Close the grips
-    #     j_c = np.array(list(
-    #         map(lambda x: x[0], p.getJointStates(pandaID, jointsID))
-    #     ))
-    #     count = 0
-    #     while np.linalg.norm(j_c-q_i)>1e-2 and count<10:
-    #         j_c = np.array(list(
-    #         map(lambda x: x[0], p.getJointStates(pandaID, jointsID))
-    #         ))
-    #         p.setJointMotorControlArray( 
-    #             pandaID,
-    #             jointsID,
-    #             pyb.POSITION_CONTROL,
-    #             targetPositions=q_i
-    #         )
-    #         p.stepSimulation()
-    #         time.sleep(0.1)
-    #         count += 1
+    with open(file_name, 'wb') as f:
+        pickle.dump(run_data, f)
