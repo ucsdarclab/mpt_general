@@ -52,6 +52,14 @@ def set_robot(client_obj, base_pose = np.array([0]*3), base_orientation=np.array
     joints = [j[0] for j in jointInfo if j[2]==pyb.JOINT_REVOLUTE]
     # finger nums
     finger = [j[0] for j in jointInfo if j[2]==pyb.JOINT_PRISMATIC]
+
+    for i, j_i in enumerate(joints):
+        client_obj.changeDynamics(
+            panda,
+            j_i,
+            jointLowerLimit=q_min[0, i],
+            jointUpperLimit=q_max[0, i]
+        )
     return panda, joints, finger
 
 # Spawn robot for visualization purposes only.
