@@ -107,6 +107,15 @@ def set_position(client_obj, model, joints, jointValue):
     for jV, j in zip(jointValue, joints):
         client_obj.resetJointState(model, j, jV)
 
+def get_joint_position(client_id, robotID, jointsID):
+    '''
+    Returns a numpy array of all the joints for the given robot.
+    :param robotID: pybullet ID of the robot.
+    :param jointsID: List of link ID whose joint angles are requested.
+    :return np.array: The resulting joint configuration.
+    '''
+    return np.array(list(map(lambda x:x[0], client_id.getJointStates(robotID, jointsID))))
+
 def get_random_pos(num_points):
     ''' Generate random points in 3D space.
     :param num_points: Number of points to be generated.
