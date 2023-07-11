@@ -25,6 +25,12 @@ import matplotlib.pyplot as plt
 from einops import rearrange
 
 try:
+    # For optimized Jacobians
+    from functorch import jacrev
+except ImportError:
+    raise "Install 'pip3 install functorch==0.2'"
+
+try:
     from ompl import base as ob
     from ompl import geometric as og
     from ompl import util as ou
@@ -435,7 +441,6 @@ def get_search_proj_dist(normalized_path, path, map_data, context_encoder, decod
     :returns (torch.tensor, torch.tensor, float): Returns an array of mean and covariance matrix and the time it took to 
     fetch them.
     '''
-    p = get_pybullet_server('direct')
     # Get the context.
     # tolerance = np.array([0.1, 2*np.pi, 2*np.pi])
     # tolerance = np.array([0.1, 0.1, 2*np.pi])
@@ -463,11 +468,11 @@ def get_search_proj_dist(normalized_path, path, map_data, context_encoder, decod
             dist_mu, _ = decoder_model(z_scaled[None, :])
             dist_mu = qMin_tensor + scale@dist_mu.squeeze()
             return dist_mu
+        mean_jacobian = jacrev(get_distribution_mean)
         # Get the distribution.
         # Ignore the zero index, since it is encoding representation of start vector.
         # TODO: This is normalized space !!!
         output_dist_mu, _ = decoder_model(input_seq[reached_goal[0, 0], 1:reached_goal[0, 1]+1][None, :])
-        output_dist_mu = output_dist_mu.detach().squeeze().cpu().numpy()
         if len(output_dist_mu.shape)==1:
             output_dist_mu = output_dist_mu[None, :]
         # Modify the latent vector by projecting along the gradient.
@@ -505,14 +510,21 @@ def get_search_proj_dist(normalized_path, path, map_data, context_encoder, decod
             q_i = get_distribution_mean(z_i).detach().cpu().numpy()
             f = constrain_obj.function(q_i)
             J_const = constrain_obj.jacobian(q_i)
-            J_decoder = tag.functional.jacobian(get_distribution_mean, z_i).detach().cpu().numpy()
+            # J_decoder = tag.functional.jacobian(get_distribution_mean, z_i).detach().cpu().numpy()
+            J_decoder = mean_jacobian(z_i).detach().cpu().numpy()
             J = 2*(f.T@J_const + gamma*(q_i-q_c).T)@J_decoder
             return J
         gamma = 0.1
         z_latent_new = torch.zeros_like(z_latent)
+        q_current = (output_dist_mu.squeeze()@scale+qMin_tensor).detach().cpu().numpy()
+        if len(q_current.shape)==1:
+            q_current = q_current[None, :]
         for i, z_i in enumerate(z_latent):
-            q_i = get_distribution_mean(z_i).detach().cpu().numpy()
-            start_cost = constrain_obj.function(q_i)
+            q_i = q_current[i]
+            try:
+                start_cost = constrain_obj.function(q_i)
+            except TypeError:
+                import pdb;pdb.set_trace()
             objective_fun = lambda z: reg_constrain_function(z, q_i, gamma)
             objective_jac = lambda z: reg_constrain_jacobian(z, q_i, gamma)
             sol = opt.minimize(
@@ -698,7 +710,8 @@ def main(args):
         if args.project:
             # fileName = osp.join(ar_model_folder, f'eval_val_const_proj_plan_ls_{args.planner_type}_tip_{start:06d}.p')
             # fileName = osp.join(ar_model_folder, f'eval_val_const_proj_plan_ls_nearest_{args.planner_type}_tip_{start:06d}.p')
-            fileName = osp.join(ar_model_folder, f'eval_val_const_proj_plan_opt_{args.planner_type}_tip_{start:06d}.p')
+            # fileName = osp.join(ar_model_folder, f'eval_val_const_proj_plan_opt_{args.planner_type}_tip_{start:06d}.p')
+            fileName = osp.join(ar_model_folder, f'eval_val_const_proj_plan_optv4_{args.planner_type}_tip_{start:06d}.p')
         else:
             fileName = osp.join(ar_model_folder, f'eval_val_const_plan_{args.planner_type}_tip_{start:06d}.p')
     else:
