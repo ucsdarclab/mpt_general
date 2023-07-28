@@ -384,8 +384,7 @@ def get_pcd(client_id):
     pcdAllPoints.points = o3d.utility.Vector3dVector(np.concatenate(pcdCollection))
     # Cropped point cloud, NOTE: This can be reduced further!!
     cropped_pcd = pcdAllPoints.crop(bounding_box)
-    # return cropped_pcd.random_down_sample(0.4)
-    return cropped_pcd.random_down_sample(0.7)
+    return cropped_pcd.voxel_down_sample(voxel_size=0.025)  
 
 def follow_trajectory(client_id, robotID, jointsID, q_traj):
     '''
