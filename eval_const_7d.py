@@ -521,7 +521,7 @@ def get_search_proj_dist(normalized_path, path, map_data, context_encoder, decod
                 jac=objective_jac,
                 method='SLSQP',
                 options={'disp':False},
-                constraints={'type':'eq', 'fun':lambda x:x.T@x-1}
+                # constraints={'type':'eq', 'fun':lambda x:x.T@x-1}
             )
             if sol.success:
                 z_temp = torch.tensor(sol.x, device=device, dtype=torch.float)
@@ -698,7 +698,7 @@ def main(args):
         if args.project:
             # fileName = osp.join(ar_model_folder, f'eval_val_const_proj_plan_ls_{args.planner_type}_tip_{start:06d}.p')
             # fileName = osp.join(ar_model_folder, f'eval_val_const_proj_plan_ls_nearest_{args.planner_type}_tip_{start:06d}.p')
-            fileName = osp.join(ar_model_folder, f'eval_val_const_proj_plan_opt_{args.planner_type}_tip_{start:06d}.p')
+            fileName = osp.join(ar_model_folder, f'eval_val_const_proj_plan_opt_v5_{args.planner_type}_tip_{start:06d}.p')
         else:
             fileName = osp.join(ar_model_folder, f'eval_val_const_plan_{args.planner_type}_tip_{start:06d}.p')
     else:
