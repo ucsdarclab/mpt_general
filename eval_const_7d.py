@@ -110,7 +110,7 @@ def getPathLengthObjective(cost, si):
 import panda_constraint_shelf as pcs
 import roboticstoolbox as rtb
 
-def get_constraint_path(start, goal, env_num, dist_mu=None, dist_sigma=None, planner_type='rrtstar'):
+def get_constraint_path(start, goal, env_num, dist_mu=None, dist_sigma=None, planner_type='rrtstar', **kwargs):
     '''
     Plan a path given the start, goal and patch_map.
     :param start:
@@ -203,7 +203,8 @@ def get_constraint_path(start, goal, env_num, dist_mu=None, dist_sigma=None, pla
 
     # Attempt to solve the planning problem in the given time
     start_time = time.time()
-    solved = planner.solve(300.0)
+    time_to_plan = kwargs['plan_time'] if 'plan_time' in kwargs.keys() else 300.0
+    solved = planner.solve(time_to_plan)
     # if not pdef.hasExactSolution():
     #     # Redo the state sampler
     #     state_sampler = partial(StateSamplerRegion, dist_mu=None, dist_sigma=None, qMin=q_min, qMax=q_max)
