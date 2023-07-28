@@ -5,6 +5,9 @@
 # All text files
 **/*.txt
 
+# All pickle files
+**/*.pkl
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
