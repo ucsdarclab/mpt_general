@@ -134,10 +134,10 @@ def get_IK_posev2(client_id, robotID, jointsID, eeT, q_init=None):
     '''
     Find the robot joint values for the given end-effector pose using
     Options for IK solver:
-    Speed: returns very quickly the first solution found
-    Distance: runs for the full timeout_in_secs, then returns the solution that minimizes SSE from the seed
-    Manipulation1: runs for full timeout, returns solution that maximizes sqrt(det(J*J^T)) (the product of the singular values of the Jacobian)
-    Manipulation2: runs for full timeout, returns solution that minimizes the ratio of min to max singular values of the Jacobian.
+        Speed: returns very quickly the first solution found
+        Distance: runs for the full timeout_in_secs, then returns the solution that minimizes SSE from the seed
+        Manipulation1: runs for full timeout, returns solution that maximizes sqrt(det(J*J^T)) (the product of the singular values of the Jacobian)
+        Manipulation2: runs for full timeout, returns solution that minimizes the ratio of min to max singular values of the Jacobian.
     TracIKSolver.
     :param robotID: 
     :param jointsID:
