@@ -412,7 +412,7 @@ def follow_trajectory(client_id, robotID, jointsID, q_traj):
             j_c = pu.get_joint_position(client_id, robotID, jointsID)
             count += 1
 
-def set_env(client_id):
+def set_env(client_id, seed=0):
     '''
     Set up the environment for the given client.
     :param client_id: pybullet client object
@@ -442,11 +442,19 @@ def set_env(client_id):
     # obj_name = 'YcbMustardBottle'
     path_to_urdf = osp.join(ycb_objects.getDataPath(), obj_name, "model.urdf")
     # # Goal position of the object
-    # itm_id = p.loadURDF(path_to_urdf, [0.3, -0.5, 0.171])
+    # itm_id = client_id.loadURDF(path_to_urdf, [0.3, -0.5, 0.171])
     # NOTE: Currently hold-off on loading objects!!
     # Start postion of the object
     # itm_id = client_id.loadURDF(path_to_urdf, [0.555, -0.385, 0.642])
-    itm_id = -1
+    # Place the cylinder near the gas.
+    # itm_id = client_id.loadURDF(path_to_urdf, [0.4, -0.6, 0.171])
+    
+    # Place the chips can randomly on the table
+    np.random.seed(seed)
+    base_pose = np.array([0.4, -0.6]) + np.random.rand(2)*np.array([0.3, 1])
+    itm_id = client_id.loadURDF(path_to_urdf, [base_pose[0], base_pose[1], 0.171])
+
+    # itm_id = -1
     return all_obstacles, itm_id
 
 from time import perf_counter
