@@ -435,7 +435,6 @@ def get_search_proj_dist(normalized_path, path, map_data, context_encoder, decod
     :returns (torch.tensor, torch.tensor, float): Returns an array of mean and covariance matrix and the time it took to 
     fetch them.
     '''
-    p = get_pybullet_server('direct')
     # Get the context.
     # tolerance = np.array([0.1, 2*np.pi, 2*np.pi])
     # tolerance = np.array([0.1, 0.1, 2*np.pi])
