@@ -246,6 +246,7 @@ def get_path(start, goal, validity_checker_obj, dist_mu=None, dist_sigma=None, c
             pass
         print("Found Solution")
         # TODO: Get final planner path. 
+        pdef.getSolutionPath().interpolate()
         path = [
             get_numpy_state(pdef.getSolutionPath().getState(i))
             for i in range(pdef.getSolutionPath().getStateCount())
