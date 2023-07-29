@@ -461,43 +461,53 @@ def main(args):
     validity_checker_obj = PCStateValidityChecker(si)
 
     # TODO: Get trajectory of the model.
+    # with open(f'/root/data/panda_shelf/val/env_{2000:06d}/path_0.p', 'rb') as f:
+    #     data = pickle.load(f)
+    #     joint_path = data['jointPath']
     joint_path = np.array([
         [-2.5625811589517093, -1.278454833668991, 1.5700145675424944, -1.940390097367136, -0.5881910943748965, 2.871443737682369, 2.6863211957828783],
         [0.6022690488873865, 1.3312336621033518, 0.9961239478994919, -2.080029916144254, 0.3459330855413196, 2.4120854873789677, 1.6618453113453255]
     ])
+    # TODO: Define path_obj for the single path.
+    path_obj = None
     if use_model:
         # TODO: Get point cloud from robot base!!
-        data_PC = o3d.io.read_point_cloud('map_2000.pcd')
+        # data_PC = o3d.io.read_point_cloud('map_2000.pcd')
+        data_PC = o3d.io.read_point_cloud('panda_base_pcd.pcd')
         depth_points = np.array(data_PC.points)
         map_data = tg_data.Data(pos=torch.as_tensor(depth_points, dtype=torch.float, device=device))
         
         path = (joint_path-q_min)/(q_max-q_min)
-        # TODO: Define path_obj for the single path.
-        path_obj = None
-        if not use_model:
-            # Plan paths that are within 10% of the given path length.
-            path_obj = None
-        
-        if use_model:
-            search_dist_mu, search_dist_sigma, patch_time = get_search_dist(path, joint_path, map_data, context_env_encoder, decoder_model, ar_model, quantizer_model, num_keys)
-        else:
-            print("Not using model, using uniform distribution")
-            search_dist_mu, search_dist_sigma, patch_time = None, None, 0.0
-
-        planned_path, t, v, s = get_path(joint_path[0], joint_path[-1], validity_checker_obj, search_dist_mu, search_dist_sigma, cost=path_obj, planner_type=args.planner_type)
-        pathSuccess.append(s)
-        pathTime.append(t)
-        pathVertices.append(v)
-        pathTimeOverhead.append(t)
-        pathPlanned.append(np.array(planned_path))
-        predict_seq_time.append(patch_time)
+        search_dist_mu, search_dist_sigma, patch_time = get_search_dist(path, joint_path, map_data, context_env_encoder, decoder_model, ar_model, quantizer_model, num_keys)
     else:
-        pathSuccess.append(False)
-        pathTime.append(0)
-        pathVertices.append(0)
-        pathTimeOverhead.append(0)
-        pathPlanned.append([[]])
-        predict_seq_time.append(0)
+        # Plan paths that are within 10% of the given path length.
+        path_obj = None
+        print("Not using model, using uniform distribution")
+        search_dist_mu, search_dist_sigma, patch_time = None, None, 0.0
+
+    planned_path, t, v, s = get_path(joint_path[0], joint_path[-1], validity_checker_obj, search_dist_mu, search_dist_sigma, cost=path_obj, planner_type=args.planner_type)
+    print(f"Plan Time: {t}")
+    # Display planned path
+    # robot = moveit_commander.RobotCommander()
+    # group_name = "panda_arm"
+    # move_group = moveit_commander.MoveGroupCommander(group_name)
+    # display_trajectory = moveit_msgs.msg.DisplayTrajectory()
+    # display_trajectory.trajectory_start = robot.get_current_state()
+    p = get_pybullet_server('gui')
+    # # Env - Shelf
+    set_simulation_env(p)
+    pandaID, jointsID, _ = set_robot(p)
+    # all_obstacles = place_shelf_and_obstacles(p, seed=2000)
+    for q_i in planned_path:
+        pu.set_position(pandaID, jointsID, q_i)
+        time.sleep(0.1)
+    pathSuccess.append(s)
+    pathTime.append(t)
+    pathVertices.append(v)
+    pathTimeOverhead.append(t)
+    pathPlanned.append(np.array(planned_path))
+    predict_seq_time.append(patch_time)
+
 
     pathData = {'Time':pathTime, 'Success':pathSuccess, 'Vertices':pathVertices, 'PlanTime':pathTimeOverhead, 'PredictTime': predict_seq_time, 'Path': pathPlanned}
     if use_model:
