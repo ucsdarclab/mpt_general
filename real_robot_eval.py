@@ -461,10 +461,10 @@ def main(args):
     validity_checker_obj = PCStateValidityChecker(si)
 
     # TODO: Get trajectory of the model.
-    with open(f'/root/data/panda_shelf/val/env_{2000:06d}/path_0.p', 'rb') as f:
-        data = pickle.load(f)
-        joint_path = data['jointPath']
-
+    joint_path = np.array([
+        [-2.5625811589517093, -1.278454833668991, 1.5700145675424944, -1.940390097367136, -0.5881910943748965, 2.871443737682369, 2.6863211957828783],
+        [0.6022690488873865, 1.3312336621033518, 0.9961239478994919, -2.080029916144254, 0.3459330855413196, 2.4120854873789677, 1.6618453113453255]
+    ])
     if use_model:
         # TODO: Get point cloud from robot base!!
         data_PC = o3d.io.read_point_cloud('map_2000.pcd')
