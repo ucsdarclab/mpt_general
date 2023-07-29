@@ -435,8 +435,8 @@ def main(args):
     else:
         print("Comparing with vq-mpt planners")
         # Load VQ-MPT planned paths, for setting optimization objective.
-        with open(osp.join(args.ar_model_folder, f'eval_val_plan_rrt_{2000:06d}.p'), 'rb') as f:
-            vq_mpt_data = pickle.load(f)
+        # with open(osp.join(args.ar_model_folder, f'eval_val_plan_rrt_{2000:06d}.p'), 'rb') as f:
+        #     vq_mpt_data = pickle.load(f)
     # ============================= Run planning experiment ============================
     pathSuccess = []
     pathTime = []
