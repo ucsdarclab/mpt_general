@@ -44,6 +44,11 @@ from modules.autoregressive import AutoRegressiveModel, EnvContextCrossAttModel
 from panda_utils import q_max, q_min
 from ompl_utils import get_ompl_state, get_numpy_state
 
+# To visualize trajectories.
+from panda_shelf_env import place_shelf_and_obstacles
+from panda_utils import get_pybullet_server, q_max, q_min, set_robot, set_simulation_env
+import panda_utils as pu
+
 res = 0.05
 device = torch.device('cuda') if torch.cuda.is_available() else 'cpu'
 
@@ -195,9 +200,10 @@ def get_path(start, goal, validity_checker_obj, dist_mu=None, dist_sigma=None, c
     pdef = ob.ProblemDefinition(si)
     pdef.setStartAndGoalStates(start_state, goal_state)
 
-    # # Set up objective function
-    # obj = getPathLengthObjective(cost, si)
-    # pdef.setOptimizationObjective(obj)
+    # Set up objective function
+    if cost is not None:
+        obj = getPathLengthObjective(cost, si)
+        pdef.setOptimizationObjective(obj)
 
     if planner_type=='rrtstar':
         planner = og.RRTstar(si)
@@ -460,53 +466,57 @@ def main(args):
     # Define a validity checker object!!
     validity_checker_obj = PCStateValidityChecker(si)
 
-    # TODO: Get trajectory of the model.
-    # with open(f'/root/data/panda_shelf/val/env_{2000:06d}/path_0.p', 'rb') as f:
-    #     data = pickle.load(f)
-    #     joint_path = data['jointPath']
-    joint_path = np.array([
-        [-2.5625811589517093, -1.278454833668991, 1.5700145675424944, -1.940390097367136, -0.5881910943748965, 2.871443737682369, 2.6863211957828783],
-        [0.6022690488873865, 1.3312336621033518, 0.9961239478994919, -2.080029916144254, 0.3459330855413196, 2.4120854873789677, 1.6618453113453255]
-    ])
-    # TODO: Define path_obj for the single path.
-    path_obj = None
-    if use_model:
-        # TODO: Get point cloud from robot base!!
-        # data_PC = o3d.io.read_point_cloud('map_2000.pcd')
-        data_PC = o3d.io.read_point_cloud('panda_base_pcd.pcd')
-        depth_points = np.array(data_PC.points)
-        map_data = tg_data.Data(pos=torch.as_tensor(depth_points, dtype=torch.float, device=device))
-        
-        path = (joint_path-q_min)/(q_max-q_min)
-        search_dist_mu, search_dist_sigma, patch_time = get_search_dist(path, joint_path, map_data, context_env_encoder, decoder_model, ar_model, quantizer_model, num_keys)
-    else:
-        # Plan paths that are within 10% of the given path length.
-        path_obj = None
-        print("Not using model, using uniform distribution")
-        search_dist_mu, search_dist_sigma, patch_time = None, None, 0.0
+    # Get start n goal pairs
+    with open('/root/data/panda_real_world/start_n_goal_set.pkl', 'rb') as f:
+        data = pickle.load(f)
+        start_n_goal = data['start_n_goal']
+    # Get previously planned paths, if not using vqmpt or planning using rrt
+    use_path_obj = not use_model and args.planner_type!='rrt'
+    if use_path_obj:
+        with open(f'/root/data/general_mpt_panda_7d/stage2/model1/real_world_rrt_{0:06d}.p', 'rb') as f:
+            vq_mpt_planned_paths = pickle.load(f)
+    for i, joint_path in enumerate(start_n_goal):
+        # Define path_obj for the single path.
+        if use_path_obj and vq_mpt_planned_paths['Success']:
+            path_obj = 1.1*np.linalg.norm(np.diff(vq_mpt_planned_paths['Path'][i], axis=0), axis=1).sum()
+        else:
+            path_obj = None
+        if use_model:
+            # TODO: Get point cloud from robot base!!
+            # data_PC = o3d.io.read_point_cloud('map_2000.pcd')
+            data_PC = o3d.io.read_point_cloud('panda_base_pcd.pcd')
+            depth_points = np.array(data_PC.points)
+            map_data = tg_data.Data(pos=torch.as_tensor(depth_points, dtype=torch.float, device=device))
+            
+            path = (joint_path-q_min)/(q_max-q_min)
+            search_dist_mu, search_dist_sigma, patch_time = get_search_dist(path, joint_path, map_data, context_env_encoder, decoder_model, ar_model, quantizer_model, num_keys)
+        else:
+            # Plan paths that are within 10% of the given path length.
+            print("Not using model, using uniform distribution")
+            search_dist_mu, search_dist_sigma, patch_time = None, None, 0.0
 
-    planned_path, t, v, s = get_path(joint_path[0], joint_path[-1], validity_checker_obj, search_dist_mu, search_dist_sigma, cost=path_obj, planner_type=args.planner_type)
-    print(f"Plan Time: {t}")
-    # Display planned path
-    # robot = moveit_commander.RobotCommander()
-    # group_name = "panda_arm"
-    # move_group = moveit_commander.MoveGroupCommander(group_name)
-    # display_trajectory = moveit_msgs.msg.DisplayTrajectory()
-    # display_trajectory.trajectory_start = robot.get_current_state()
-    p = get_pybullet_server('gui')
-    # # Env - Shelf
-    set_simulation_env(p)
-    pandaID, jointsID, _ = set_robot(p)
-    # all_obstacles = place_shelf_and_obstacles(p, seed=2000)
-    for q_i in planned_path:
-        pu.set_position(pandaID, jointsID, q_i)
-        time.sleep(0.1)
-    pathSuccess.append(s)
-    pathTime.append(t)
-    pathVertices.append(v)
-    pathTimeOverhead.append(t)
-    pathPlanned.append(np.array(planned_path))
-    predict_seq_time.append(patch_time)
+        planned_path, t, v, s = get_path(joint_path[0], joint_path[-1], validity_checker_obj, search_dist_mu, search_dist_sigma, cost=path_obj, planner_type=args.planner_type)
+        print(f"Plan Time: {t}")
+        # Display planned path
+        # robot = moveit_commander.RobotCommander()
+        # group_name = "panda_arm"
+        # move_group = moveit_commander.MoveGroupCommander(group_name)
+        # display_trajectory = moveit_msgs.msg.DisplayTrajectory()
+        # display_trajectory.trajectory_start = robot.get_current_state()
+        # p = get_pybullet_server('gui')
+        # # # Env - Shelf
+        # set_simulation_env(p)
+        # pandaID, jointsID, _ = set_robot(p)
+        # all_obstacles = place_shelf_and_obstacles(p, seed=2000)
+        # for q_i in planned_path:
+        #     pu.set_position(pandaID, jointsID, q_i)
+        #     time.sleep(0.1)
+        pathSuccess.append(s)
+        pathTime.append(t)
+        pathVertices.append(v)
+        pathTimeOverhead.append(t)
+        pathPlanned.append(np.array(planned_path))
+        predict_seq_time.append(patch_time)
 
 
     pathData = {'Time':pathTime, 'Success':pathSuccess, 'Vertices':pathVertices, 'PlanTime':pathTimeOverhead, 'PredictTime': predict_seq_time, 'Path': pathPlanned}
@@ -514,14 +524,13 @@ def main(args):
         fileName = osp.join(ar_model_folder, f'real_world_{args.planner_type}_{0:06d}.p')
     else:
         fileName = f'/root/data/general_mpt/real_world_{args.planner_type}_{0:06d}.p'
-    # pickle.dump(pathData, open(fileName, 'wb'))
+    pickle.dump(pathData, open(fileName, 'wb'))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--dict_model_folder', help="Folder where dictionary model is stored")
     parser.add_argument('--ar_model_folder', help="Folder where AR model is stored")
-    parser.add_argument('--samples', help="Number of samples to collect", type=int)
     parser.add_argument('--planner_type', help="Type of planner to use", choices=['rrtstar', 'rrt', 'rrtconnect', 'informedrrtstar', 'fmtstar', 'bitstar'])
 
     args = parser.parse_args()
