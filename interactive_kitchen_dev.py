@@ -42,8 +42,21 @@ from contact_grasp_estimator import GraspEstimator
 import config_utils
 from visualization_utils import visualize_grasps
 import panda_constraint_shelf as pcs
+from tracikpy import TracIKSolver
+import interactive_panda_kitchen as ipk
+import eval_const_7d as ec7
 
-from interactive_panda_kitchen import *
+# from interactive_panda_kitchen import *
+import torch
+import torch_geometric.data as tg_data
+import json
+
+# VQ-MPT model 
+from modules.quantizers import VectorQuantizer
+from modules.decoder import DecoderPreNormGeneral
+from modules.encoder import EncoderPreNorm
+from modules.autoregressive import AutoRegressiveModel, EnvContextCrossAttModel
+
 device = torch.device('cuda') if torch.cuda.is_available() else 'cpu'
 
 def add_debug_point(client_id, pose):
@@ -162,7 +175,7 @@ def get_constraint_path(start, world_T_obj, validity_checker_obj, constraint_fun
     space.setBounds(bounds)
 
     # Redo the state sampler
-    state_sampler = partial(StateSamplerRegion, dist_mu=dist_mu, dist_sigma=dist_sigma, qMin=pu.q_min, qMax=pu.q_max)
+    state_sampler = partial(ipk.StateSamplerRegion, dist_mu=dist_mu, dist_sigma=dist_sigma, qMin=pu.q_min, qMax=pu.q_max)
     space.setStateSamplerAllocator(ob.StateSamplerAllocator(state_sampler))
     
     # Set up the constraint planning space.
@@ -319,7 +332,7 @@ def get_constraint_path_v2(start, goal, validity_checker_obj, constraint_functio
     space.setBounds(bounds)
 
     # # Redo the state sampler
-    state_sampler = partial(StateSamplerRegion, dist_mu=dist_mu, dist_sigma=dist_sigma, qMin=pu.q_min, qMax=pu.q_max)
+    state_sampler = partial(ipk.StateSamplerRegion, dist_mu=dist_mu, dist_sigma=dist_sigma, qMin=pu.q_min, qMax=pu.q_max)
     space.setStateSamplerAllocator(ob.StateSamplerAllocator(state_sampler))
     
     # Set up the constraint planning space.
@@ -403,12 +416,12 @@ if __name__=="__main__":
     if not osp.isdir(env_log_dir):
         os.mkdir(env_log_dir)
     # Set up environment for simulation
-    all_obstacles, itm_id = set_env(p, seed=env_num)
+    all_obstacles, itm_id = ipk.set_env(p, seed=env_num)
     kitchen = all_obstacles[0]
     # Set up environment for collision checking
-    all_obstacles_coll, itm_id_coll = set_env(p_collision, seed=env_num)
+    all_obstacles_coll, itm_id_coll = ipk.set_env(p_collision, seed=env_num)
     # Set up environment for capturing pcd
-    all_obstacles_pcd, itm_id_pcd = set_env(p_pcd, seed=env_num)
+    all_obstacles_pcd, itm_id_pcd = ipk.set_env(p_pcd, seed=env_num)
 
     # Open the shelf
     shelf_index = 29
@@ -457,8 +470,8 @@ if __name__=="__main__":
 
     # =================== Code for grasping with different orientations ===========================
     can_T_ee = np.array([[0., 0., 1, 0.], [0, -1, 0, 0], [1, 0, 0, 0], [0, 0, 0, 1]])
-    panda_reset_open_gripper(p, pandaID, gripper_dist=0.1)
-    panda_reset_open_gripper(p_collision, pandaID_col, gripper_dist=0.1)
+    ipk.panda_reset_open_gripper(p, pandaID, gripper_dist=0.1)
+    ipk.panda_reset_open_gripper(p_collision, pandaID_col, gripper_dist=0.1)
     # Offset by 10cm along x-axis for allowing grasping and 5 cm along z-axis for avoiding 
     # collision w/ table.
     can_pose = np.array(p.getBasePositionAndOrientation(itm_id)[0])
@@ -556,8 +569,8 @@ if __name__=="__main__":
     #     data = pickle.load(f)
     #     # Open trajectory
     #     q_traj = np.array(data['traj'])
-    panda_reset_open_gripper(p, pandaID, gripper_dist=0.1)
-    panda_reset_open_gripper(p_collision, pandaID_col, gripper_dist=0.1)
+    ipk.panda_reset_open_gripper(p, pandaID, gripper_dist=0.1)
+    ipk.panda_reset_open_gripper(p_collision, pandaID_col, gripper_dist=0.1)
 
     # ============== Load VQ-MPT Model ======================
     dict_model_folder = '/root/data/general_mpt_panda_7d/model1'
@@ -692,7 +705,7 @@ if __name__=="__main__":
     tolerance = np.array([2*np.pi, 0.1, 0.1])
     constraint_function = pcs.EndEffectorConstraint(can_T_ee[:3, :3], tolerance, pandaID, jointsID)
     # Get point cloud information.
-    pcd = get_pcd(p_pcd)
+    pcd = ipk.get_pcd(p_pcd)
     map_data = tg_data.Data(pos=torch.as_tensor(np.asarray(pcd.points), dtype=torch.float, device=device))
 
     use_model = True
