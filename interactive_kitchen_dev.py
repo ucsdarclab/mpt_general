@@ -33,14 +33,13 @@ import sys
 BASE_DIR = '/root/third_party/contact_graspnet'
 sys.path.append(osp.join(BASE_DIR, 'contact_graspnet'))
 
-import tensorflow.compat.v1 as tf
-tf.disable_eager_execution()
-physical_devices = tf.config.experimental.list_physical_devices('GPU')
-tf.config.experimental.set_memory_growth(physical_devices[0], True)
-
-from contact_grasp_estimator import GraspEstimator
-import config_utils
-from visualization_utils import visualize_grasps
+# import tensorflow.compat.v1 as tf
+# tf.disable_eager_execution()
+# physical_devices = tf.config.experimental.list_physical_devices('GPU')
+# tf.config.experimental.set_memory_growth(physical_devices[0], True)
+# from contact_grasp_estimator import GraspEstimator
+# import config_utils
+# from visualization_utils import visualize_grasps
 import panda_constraint_shelf as pcs
 from tracikpy import TracIKSolver
 import interactive_panda_kitchen as ipk
