@@ -140,3 +140,15 @@ class DecoderPreNormGeneral(nn.Module):
         L[:, :, self.l_index[0], self.l_index[1]] = L_linear
         covar = torch.matmul(torch.matmul(L, D), L.transpose(2, 3))
         return (self.mu(z_q)+1)/2, covar
+
+    def get_sigma_sqrroot(self, z_q):
+        z_q = self.pos_ffn(z_q)
+        D_sqrroot = torch.diag_embed(torch.sqrt(F.softplus(self.diag(z_q))))
+        L_linear = self.l(z_q)
+        L = torch.diag_embed(torch.ones((z_q.shape[0], z_q.shape[1], self.c_space_dim), device=z_q.device))
+        L[:, :, self.l_index[0], self.l_index[1]] = L_linear
+        return L@D_sqrroot
+
+    def get_mean(self, z_q):
+        z_q = self.pos_ffn(z_q)
+        return (self.mu(z_q)+1)/2
