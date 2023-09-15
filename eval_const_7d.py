@@ -470,6 +470,133 @@ def back_tracking(f, x0, delta, gamma, N):
         alpha = gamma*alpha
     return None
 
+from torch.distributions import MultivariateNormal
+import torch.autograd.functional as taf
+
+def get_search_proj_distv2(normalized_path, path, map_data, context_encoder, decoder_model, ar_model, quantizer_model, num_keys):
+    '''
+    Project the distribution using the E[F(q)^TF(q)] objective function
+    :returns (torch.tensor, torch.tensor, float): Returns an array of mean and covariance matrix and the time it took to 
+    fetch them.
+    '''
+    # Get the context.
+    # tolerance = np.array([0.1, 2*np.pi, 2*np.pi])
+    # tolerance = np.array([0.1, 0.1, 2*np.pi])
+    tolerance = np.array([2*np.pi, 0.1, 0.1])
+    constraint_obj = ConstraintFunctions(path[0], tolerance = tolerance)
+    start_time = time.time()
+    start_n_goal = torch.as_tensor(normalized_path[[0, -1], :7], dtype=torch.float)
+    env_input = tg_data.Batch.from_data_list([map_data])
+    context_output = context_encoder(env_input, start_n_goal[None, :].to(device))
+    # Find the sequence of dict values using beam search
+    goal_index = num_keys+1
+    quant_keys, _, input_seq = get_beam_search_path(31, 3, context_output, ar_model, quantizer_model, goal_index)
+
+    reached_goal = torch.stack(torch.where(quant_keys==goal_index), dim=1)
+    if len(reached_goal) > 0:
+        scale = torch.diag(torch.tensor((pu.q_max[0]-pu.q_min[0]), device=device, dtype=torch.float))
+        qMin_tensor = torch.tensor(pu.q_min[0], device=device, dtype=torch.float)
+        def get_distribution(z):
+            '''
+            Returns the distribution for the latent vector z.
+            :param z: The latent vector z.
+            :returns torch.tensor: The mean distribution of z.
+            '''
+            scale_broadcast = scale[None, :]
+            z_scaled = quantizer_model.output_linear_map(z)
+            dist_mu, dist_sigma = decoder_model(z_scaled[None, None, :])
+            dist_mu = qMin_tensor + dist_mu.squeeze()@scale_broadcast
+            dist_sigma = scale_broadcast@dist_sigma@scale_broadcast
+            return dist_mu, dist_sigma
+        # Get the distribution.
+        # Ignore the zero index, since it is encoding representation of start vector.
+        # TODO: This is normalized space !!!
+        output_dist_mu, _ = decoder_model(input_seq[reached_goal[0, 0], 1:reached_goal[0, 1]+1][None, :])
+        output_dist_mu = output_dist_mu.detach().squeeze().cpu().numpy()
+        if len(output_dist_mu.shape)==1:
+            output_dist_mu = output_dist_mu[None, :]
+        # Modify the latent vector by projecting along the gradient.
+        z_latent = quantizer_model.embedding(quant_keys[reached_goal[0, 0], :reached_goal[0, 1]].to(dtype=torch.int, device=device))
+        z_latent_new = torch.zeros_like(z_latent)
+        # Objective function
+        def obj_function(z_i, num_samples=10):
+            '''
+            Return the objective function E[F(q).TF(q)]
+            '''
+            z_i = torch.tensor(z_i, device=device, dtype=torch.float)
+            temp_mu, temp_sigma = get_distribution(z_i)
+            Q = MultivariateNormal(temp_mu.squeeze(), temp_sigma.squeeze())
+            F_tmp = constraint_obj.function_batch(Q.sample((num_samples,)).detach().cpu().numpy())
+            return (F_tmp*F_tmp).sum(axis=1).mean()
+        # Jacobian of the objective function.
+        def obj_gradient(z_i, num_samples=10):
+            '''
+            Return the gradient of the function \delta E[F(q).TF[q]]/\delta z
+            '''
+            z_i = torch.tensor(z_i, device=device, dtype=torch.float)
+            # Get the mean and \Simga^0.5
+            z_scaled = quantizer_model.output_linear_map(z_i)
+            temp_dist_mu = decoder_model.get_mean(z_scaled[None, :])
+            temp_dist_sigma_sqrt = decoder_model.get_sigma_sqrroot(z_scaled[None, None, :])
+            # Sample from normal distribution
+            epsilon = MultivariateNormal(torch.zeros((7), device=device), torch.eye(7, device=device)).sample((num_samples,))
+            
+            # Find the derivate wrt to z.
+            q = (temp_dist_mu + epsilon@temp_dist_sigma_sqrt.squeeze(0)).squeeze().detach().cpu().numpy()
+            J_const = constraint_obj.jacobian_batch(q)
+            # Get the derivates of model wrt to z.
+            J_var = taf.jacobian(lambda z: decoder_model.get_sigma_sqrroot(quantizer_model.output_linear_map(z)), z_i[None, None, :]).squeeze()
+            J_mean = taf.jacobian(lambda z: decoder_model.get_mean(quantizer_model.output_linear_map(z)), z_i[None, None, :])
+            J_model = torch.einsum('ij,jkl->ikl', epsilon, J_var).detach().cpu().numpy()
+            F_tmp = constraint_obj.function_batch(q)
+            return (F_tmp[:, None, :]@J_const@J_model).mean(axis=0)
+        
+        z_latent_new = torch.zeros_like(z_latent)
+        for i, z_k in enumerate(z_latent):
+            # q_i = get_distribution_mean(z_i).detach().cpu().numpy()
+            # start_cost = constraint_obj.function(q_i)
+            sol = opt.minimize(
+                fun=obj_function,
+                x0=z_k.detach().cpu().numpy(),
+                jac=obj_gradient,
+                method='SLSQP',
+                options={'disp':False},
+                # constraints={'type':'eq', 'fun':lambda x:x.T@x-1}
+            )
+            if sol.success:
+                z_temp = torch.tensor(sol.x, device=device, dtype=torch.float)
+                z_temp = F.normalize(z_temp[None, :]).squeeze()
+            else:
+                print("No solution found")
+                z_temp = z_k
+            z_latent_new[i, :] = z_temp
+            # new_cost = constraint_obj.function(get_distribution_mean(z_temp).detach().cpu().numpy())
+            # print(f"Cost(Before): {start_cost} \nCost(After):{new_cost}")
+
+        projected_latent = quantizer_model.output_linear_map(z_latent_new)
+        output_dist_mu, output_dist_sigma = decoder_model(projected_latent[None, :])
+
+        dist_mu = output_dist_mu.detach().cpu()
+        dist_sigma = output_dist_sigma.detach().cpu()
+        # If only a single point is predicted, then reshape the vector to a 2D tensor.
+        if len(dist_mu.shape) == 1:
+            dist_mu = dist_mu[None, :]
+            dist_sigma = dist_sigma[None, :]
+        
+        # ========================== append search with goal  ======================
+        search_dist_mu = torch.zeros((reached_goal[0, 1]+1, 7))
+        search_dist_mu[:reached_goal[0, 1], :7] = dist_mu
+        search_dist_mu[reached_goal[0, 1], :] = torch.tensor(normalized_path[-1])
+        search_dist_sigma = torch.diag_embed(torch.ones((reached_goal[0, 1]+1, 7)))
+        search_dist_sigma[:reached_goal[0, 1], :7, :7] = torch.tensor(dist_sigma)
+        search_dist_sigma[reached_goal[0, 1], :, :] = search_dist_sigma[reached_goal[0, 1], :, :]*0.01
+        # ==========================================================================
+    else:
+        search_dist_mu = None
+        search_dist_sigma = None
+    patch_time = time.time()-start_time
+    return search_dist_mu, search_dist_sigma, patch_time
+
 def get_search_proj_dist(normalized_path, path, map_data, context_encoder, decoder_model, ar_model, quantizer_model, num_keys):
     '''
     :returns (torch.tensor, torch.tensor, float): Returns an array of mean and covariance matrix and the time it took to 
