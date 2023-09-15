@@ -500,6 +500,10 @@ class Timer:
 if __name__=="__main__":
     seed = 100
     use_model = True
+    state_space = "AT"
+    latent_project = False
+    panda_model = rtb.models.DH.Panda()
+
     # Server for collision checking
     p_collision = pu.get_pybullet_server('direct')
     # Server for collision checking
@@ -565,7 +569,11 @@ if __name__=="__main__":
         model.eval()
         model.to(device)
     run_data = []
-    for _ in range(5):
+    # For constraint planning
+    can_T_ee = np.array([[0., 0., 1, 0.], [0, -1, 0, 0], [1, 0, 0, 0], [0, 0, 0, 1]])
+    tolerance = np.array([2*np.pi, 0.1, 0.1])
+    constraint_function = pcs.EndEffectorConstraint(can_T_ee[:3, :3], tolerance, None, None)
+    for task_num in range(10):
         print("Resetting Simulation")
         for client_id in [p, p_pcd, p_collision]:
             client_id.resetSimulation()
@@ -574,10 +582,34 @@ if __name__=="__main__":
         # Set up environment for simulation
         all_obstacles, itm_id = set_env(p)
         kitchen = all_obstacles[0]
+        # Remove the randomly generated item
+        p.removeBody(itm_id)
+        # Place a cylinderical object on the shelf.
+        # itm_id_can = add_ycb_objects(p, 'YcbChipsCan', [0.555, -0.385, 0.642]
+        itm_id_can = add_ycb_objects(p, 'YcbChipsCan', [0.56, -0.39, 0.642])
+        # Place a cylinderical object at the goal
+        # itm_id_can_goal = add_ycb_objects(p, 'YcbChipsCan', [0.5, -0.7, 0.171])
+        # can_pose = np.array(p.getBasePositionAndOrientation(itm_id_can_goal)[0])
+        can_xy_pose = np.random.rand(2)*0.1 + np.array([0.25, -0.45])
+        # can_goal_pose = np.array([0.3, -0.4, 0.271])
+        can_goal_pose = np.array([can_xy_pose[0], can_xy_pose[1], 0.271])
+        world_T_can = smp.base.rt2tr(np.eye(3), can_goal_pose)
+
         # Set up environment for collision checking
         all_obstacles_coll, itm_id_coll = set_env(p_collision)
         # Set up environment for capturing pcd
         all_obstacles_pcd, itm_id_pcd = set_env(p_pcd)
+        # Set random seed after setting up the environment
+        np.random.seed(seed+task_num)
+
+        # Add additional objects in scene
+        cracker_pose, cracker_ori = [ 0.600, -0.623, 0.287], [0, 0, -np.pi/4]
+        bottle_pose = [ 0.55, -0.30296905,  0.26170506]
+        for client_id, obstacle_list in zip([p, p_pcd, p_collision], [all_obstacles, all_obstacles_pcd, all_obstacles_coll]):
+            itm_id_cracker = add_ycb_objects(client_id, 'YcbCrackerBox', cracker_pose, cracker_ori)
+            itm_id_bottle = add_ycb_objects(client_id, 'YcbMustardBottle', bottle_pose)
+            obstacle_list.append(itm_id_cracker)
+            obstacle_list.append(itm_id_bottle)
 
         # Load the interactive robot
         pandaID, jointsID, fingerID = pu.set_robot(p)
@@ -615,7 +647,6 @@ if __name__=="__main__":
         panda_reset_open_gripper(p, pandaID, gripper_dist=0.1)
         panda_reset_open_gripper(p_collision, pandaID_col, gripper_dist=0.1)
 
-        np.random.seed(seed)
         # Randomly sample a collision free start point.
         initial_config = (pu.q_min + (pu.q_max-pu.q_min)*np.random.rand(7))[0]
         pu.set_position(p_collision, pandaID_col, jointsID_col, initial_config)
@@ -642,8 +673,10 @@ if __name__=="__main__":
             search_dist_mu, search_dist_sigma = None, None
         with Timer() as timer:
             traj_cupboard, _, _ , success = get_path(initial_config, goal_q, validity_checker_obj, search_dist_mu, search_dist_sigma)
+        timing_dict['cupboard_handle_reach_plan'] = timer()
+        with Timer() as timer:
             follow_trajectory(p, pandaID, jointsID, traj_cupboard)
-        timing_dict['cupboard_handle_reach'] = timer()
+        timing_dict['cupboard_handle_reach_execute'] = timer()
 
         j_c = pu.get_joint_position(p, pandaID, jointsID)
         while np.linalg.norm(j_c-goal_q)<1e-12:
@@ -680,9 +713,11 @@ if __name__=="__main__":
         # Sync gripper.
         panda_reset_open_gripper(p_collision, pandaID_col, 0.1)
 
-        with open('shelf_reach_q.pkl', 'rb') as f:
+        # Constraint starting position
+        with open('q_start_c.pkl', 'rb') as f:
             data = pickle.load(f)
-            can_start_q = data['start_q']
+            can_start_q = data['q_start']
+
         with open('shelf_target_q.pkl', 'rb') as f:
             data = pickle.load(f)
             can_goal_q = data['goal_q']
@@ -708,9 +743,11 @@ if __name__=="__main__":
 
         with Timer() as timer:
             path_cupboard_2_can, _, _, success = get_path(tmp_start_q, can_start_q, validity_checker_obj, search_dist_mu, search_dist_sigma)
+        timing_dict['can_reach_plan'] = timer()
+        with Timer() as timer:
             # Execute cupboard trajectory
-            follow_trajectory(p, pandaID, jointsID, path_cupboard_2_can)
-        timing_dict['can_reach'] = timer()
+            follow_trajectory(p, pandaID, jointsID, path_cupboard_2_can, keep_gripper_open=True)
+        timing_dict['can_reach_execute'] = timer()
 
         for _ in range(10):
             p.stepSimulation()
@@ -718,35 +755,106 @@ if __name__=="__main__":
         for _ in range(200):
             panda_close_gripper(p, pandaID)
             p.stepSimulation()
-        # Plan a trajectory from grasp point to table
+        # pu.set_position(p, pandaID, jointsID, can_start_q)
+        # Plan a constraint trajectory from grasp point to table
         if use_model:
-            pcd = get_pcd(p_pcd)
-            n_start_n_goal = (np.r_[can_start_q[None, :], can_goal_q[None, :]]-pu.q_min)/(pu.q_max-pu.q_min)
-            map_data = tg_data.Data(pos=torch.as_tensor(np.asarray(pcd.points), dtype=torch.float, device=device))
-            search_dist_mu, search_dist_sigma, _ = ec7.get_search_dist(
-                n_start_n_goal, 
-                None, 
-                map_data, 
-                context_env_encoder, 
-                decoder_model, 
-                ar_model, 
-                quantizer_model, 
-                num_keys
+            # Define TSR for sampling goal poses for inputing to network
+            goal_region = ikd.TSR(
+                si,
+                validity_checker_obj, 
+                world_T_can, 
+                offset_T_grasp=np.c_[np.eye(4, 3), np.array([-0.11, 0.0, 0.05, 1])]@can_T_ee, 
+                goal_tolerance=np.array([0.0, 0.0, 0.5*np.pi])
             )
+            
+            # Sample goals
+            test_state = ob.State(space)
+            goal_samples = []
+            for _ in range(20):
+                goal_region.sampleGoal(test_state)
+                sample_goal = np.array([test_state[i] for i in range(7)])
+                goal_samples.append(sample_goal)
+            goal_samples = np.r_[goal_samples]
+
+            pcd = get_pcd(p_pcd)
+            map_data = tg_data.Data(pos=torch.as_tensor(np.asarray(pcd.points), dtype=torch.float, device=device))
+            timing_dict['table_reach_plan'] = 0.0
+            for can_goal_q_i in goal_samples:
+                n_start_n_goal = (np.r_[can_start_q[None, :], can_goal_q_i[None, :]]-pu.q_min)/(pu.q_max-pu.q_min)
+                if latent_project:
+                    search_dist_mu, search_dist_sigma, patch_time = ec7.get_search_proj_distv2(
+                        n_start_n_goal,
+                        can_start_q[None, :],
+                        map_data,
+                        context_env_encoder,
+                        decoder_model,
+                        ar_model,
+                        quantizer_model,
+                        num_keys
+                    )
+                else:
+                    search_dist_mu, search_dist_sigma, _ = ec7.get_search_dist(
+                        n_start_n_goal, 
+                        can_start_q[None, :],
+                        map_data,
+                        context_env_encoder, 
+                        decoder_model, 
+                        ar_model, 
+                        quantizer_model, 
+                        num_keys
+                    )
+                with Timer() as timer:
+                    path_can, _, _, _, success = ikd.get_constraint_path_v2(
+                    can_start_q, 
+                    can_goal_q_i, 
+                    validity_checker_obj, 
+                    constraint_function, 
+                    search_dist_mu, 
+                    search_dist_sigma,
+                    plan_time=2.5
+                    )
+                timing_dict['table_reach_plan'] += timer()
+                if success:
+                    with Timer() as timer:
+                        follow_trajectory(p, pandaID, jointsID, path_can)
+                    timing_dict['table_reach_execute'] = timer()
+                    break
+            if not success:
+                timing_dict['table_reach_plan'] = -1
+                timing_dict['table_reach_execute'] = -1
         else:
             search_dist_mu, search_dist_sigma = None, None
-
-        with Timer() as timer:
-            path_can, _, _, success = get_path(can_start_q, can_goal_q, validity_checker_obj, search_dist_mu, search_dist_sigma)
-            follow_trajectory(p, pandaID, jointsID, path_can)
-        timing_dict['table_reach'] = timer()
+            # Without learning.
+            with Timer() as timer:
+                path_can, _, _, _ , success = ikd.get_constraint_path(
+                                            can_start_q, 
+                                            world_T_can, 
+                                            validity_checker_obj, 
+                                            constraint_function, 
+                                            None, 
+                                            None,
+                                            plan_time=100,
+                                            state_space=state_space
+                                        )
+            timing_dict['table_reach_plan'] = timer()
+            if success:    
+                with Timer() as timer:
+                    follow_trajectory(p, pandaID, jointsID, path_can)
+                timing_dict['table_reach_execute'] = timer()
+            else:
+                timing_dict['table_reach_plan'] = -1
+                timing_dict['table_reach_execute'] = -1
 
         run_data.append(timing_dict)
     
     if use_model:
-        file_name = f'kitchen_timing_data_vqmpt_{seed}.pkl'
+        if latent_project:
+            file_name = f'kitchen_task_timing_data_vqmpt_opt_{seed}_v2.pkl'
+        else:
+            file_name = f'kitchen_task_timing_data_vqmpt_{seed}_v2.pkl'
     else:
-        file_name = f'kitchen_timing_data_{seed}.pkl'
+        file_name = f'kitchen_task_timing_data_{state_space}_{seed}_v2.pkl'
     
-    with open(file_name, 'wb') as f:
+    results_dir = '/root/data/panda_constraint'
+    with open(osp.join(results_dir, file_name), 'wb') as f:
         pickle.dump(run_data, f)
