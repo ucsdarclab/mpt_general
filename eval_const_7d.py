@@ -440,7 +440,7 @@ def get_search_proj_dist(normalized_path, path, map_data, context_encoder, decod
     # tolerance = np.array([0.1, 2*np.pi, 2*np.pi])
     # tolerance = np.array([0.1, 0.1, 2*np.pi])
     tolerance = np.array([2*np.pi, 0.1, 0.1])
-    constrain_obj = ConstraintFunctions(quantizer_model, path[0], tolerance = tolerance)
+    constraint_obj = ConstraintFunctions(quantizer_model, path[0], tolerance = tolerance)
     start_time = time.time()
     start_n_goal = torch.as_tensor(normalized_path[[0, -1], :7], dtype=torch.float)
     env_input = tg_data.Batch.from_data_list([map_data])
