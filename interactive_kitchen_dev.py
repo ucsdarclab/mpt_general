@@ -177,9 +177,36 @@ def get_constraint_path(start, world_T_obj, validity_checker_obj, constraint_fun
     state_sampler = partial(ipk.StateSamplerRegion, dist_mu=dist_mu, dist_sigma=dist_sigma, qMin=pu.q_min, qMax=pu.q_max)
     space.setStateSamplerAllocator(ob.StateSamplerAllocator(state_sampler))
     
-    # Set up the constraint planning space.
-    css = ob.ProjectedStateSpace(space, constraint_function_obj)
+    state_space = kwargs.get('state_space', 'PJ')
+    # Set up the constraint planning space
+    # PJ -> Projected
+    # AT -> Atlas
+    # TB -> Tangent Bundle
+    if state_space == 'PJ':
+        css = ob.ProjectedStateSpace(space, constraint_function_obj)
+    elif state_space == 'AT':
+        css = ob.AtlasStateSpace(space, constraint_function_obj)
+    elif state_space == 'TB':
+        css = ob.TangentBundleStateSpace(space, constraint_function_obj)
+    else:
+        raise ValueError(f"unkown state space : {state_space}")
     csi = ob.ConstrainedSpaceInformation(css)
+    css.setup()
+    # Parameters for Atlas and Tangent Bundle planners.
+    # Find detail info abt parameters - https://ompl.kavrakilab.org/ConstrainedPlanningCommon_8py_source.html
+    if not state_space == "PJ":
+        css.setExploration(0.8)
+        # css.setExploration(ob.ATLAS_STATE_SPACE_EXPLORATION)
+        css.setEpsilon(0.1)
+        # css.setEpsilon(ob.ATLAS_STATE_SPACE_EPSILON)
+        css.setRho(ob.CONSTRAINED_STATE_SPACE_DELTA * ob.ATLAS_STATE_SPACE_RHO_MULTIPLIER)
+        css.setAlpha(ob.ATLAS_STATE_SPACE_ALPHA)
+        css.setMaxChartsPerExtension(ob.ATLAS_STATE_SPACE_MAX_CHARTS_PER_EXTENSION)
+        # # Use frontier-based expansion
+        # css.setBiasFunction(lambda c, atlas=css:atlas.getChartCount() - c.getNeighborCount() + 1.)
+        # if state_space == "AT":
+        #     css.setSeparated(not options.no_separate)
+        css.setup()
     
     # Define validity checker
     ss = og.SimpleSetup(csi)
@@ -199,6 +226,16 @@ def get_constraint_path(start, world_T_obj, validity_checker_obj, constraint_fun
         offset_T_grasp=np.c_[np.eye(4, 3), np.array([-0.11, 0.0, 0.05, 1])]@can_T_ee, 
         goal_tolerance=np.array([0.0, 0.0, 0.5*np.pi])
     )
+    # import pdb;pdb.set_trace()
+    # Anchor start and goal states
+    if not state_space == 'PJ':
+        css.anchorChart(start_state())
+        # TODO: Maybe anchor more goal states?
+        sampled_goal_state = ob.State(csi.getStateSpace())
+        # Add multiple goal regions as anchor points for the Atlas-Planner
+        for _ in range(20):
+            goal_region.sampleGoal(sampled_goal_state)
+            css.anchorChart(sampled_goal_state())
 
     # Define start state and goal region using TSR representation
     ss.setStartState(start_state)
