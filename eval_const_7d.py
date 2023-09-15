@@ -526,7 +526,7 @@ def get_search_proj_dist(normalized_path, path, map_data, context_encoder, decod
             '''
             z_i = torch.tensor(z_i, device=device, dtype=torch.float)
             q_i = get_distribution_mean(z_i).detach().cpu().numpy()
-            f = constrain_obj.function(q_i)
+            f = constraint_obj.function(q_i)
             g = (q_i-q_c).T@(q_i-q_c)
             return f.T@f + gamma*g
         def reg_constrain_jacobian(z_i, q_c, gamma):
@@ -542,8 +542,8 @@ def get_search_proj_dist(normalized_path, path, map_data, context_encoder, decod
             '''
             z_i = torch.tensor(z_i, device=device, dtype=torch.float)
             q_i = get_distribution_mean(z_i).detach().cpu().numpy()
-            f = constrain_obj.function(q_i)
-            J_const = constrain_obj.jacobian(q_i)
+            f = constraint_obj.function(q_i)
+            J_const = constraint_obj.jacobian(q_i)
             J_decoder = tag.functional.jacobian(get_distribution_mean, z_i).detach().cpu().numpy()
             J = 2*(f.T@J_const + gamma*(q_i-q_c).T)@J_decoder
             return J
@@ -551,7 +551,7 @@ def get_search_proj_dist(normalized_path, path, map_data, context_encoder, decod
         z_latent_new = torch.zeros_like(z_latent)
         for i, z_i in enumerate(z_latent):
             q_i = get_distribution_mean(z_i).detach().cpu().numpy()
-            start_cost = constrain_obj.function(q_i)
+            start_cost = constraint_obj.function(q_i)
             objective_fun = lambda z: reg_constrain_function(z, q_i, gamma)
             objective_jac = lambda z: reg_constrain_jacobian(z, q_i, gamma)
             sol = opt.minimize(
@@ -569,13 +569,13 @@ def get_search_proj_dist(normalized_path, path, map_data, context_encoder, decod
                 print("No solution found")
                 z_temp = z_i
             z_latent_new[i, :] = z_temp
-            new_cost = constrain_obj.function(get_distribution_mean(z_temp).detach().cpu().numpy())
+            new_cost = constraint_obj.function(get_distribution_mean(z_temp).detach().cpu().numpy())
             print(f"Cost(Before): {start_cost} \nCost(After):{new_cost}")
         # # Get new latent variables using line search.
         # def get_jacobian(z_i):
         #     q_i = get_distribution_mean(z_i).detach().cpu().numpy()
-        #     f = constrain_obj.function(q_i)
-        #     J_const = constrain_obj.jacobian(q_i)
+        #     f = constraint_obj.function(q_i)
+        #     J_const = constraint_obj.jacobian(q_i)
         #     J_decoder = tag.functional.jacobian(get_distribution_mean, z_i)
         #     J = J_const@J_decoder.detach().cpu().numpy()
         #     return f, J
@@ -590,7 +590,7 @@ def get_search_proj_dist(normalized_path, path, map_data, context_encoder, decod
         #             break
         #         delta_z = torch.tensor(np.linalg.pinv(J)@f, device=device, dtype=torch.float)
         #         # Use a backtracking algorithm:
-        #         f_z = lambda x: constrain_obj.function(get_distribution_mean(x).detach().cpu().numpy())
+        #         f_z = lambda x: constraint_obj.function(get_distribution_mean(x).detach().cpu().numpy())
         #         z_temp = back_tracking(f_z, z0, delta_z, gamma=0.9, N=10)
         #         if z_temp is not None:
         #             z0 = F.normalize(z_temp[None, :]).squeeze()
