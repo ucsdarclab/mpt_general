@@ -324,6 +324,37 @@ def set_env(client_obj, space, num_boxes, num_spheres, seed):
     ValidityCheckerObj = ValidityCheckerDistance(client_obj, si, obstacles, panda, joints)
     return ValidityCheckerObj
 
+def capture_image(client_obj, cameraTargetPosition, distance, yaw, pitch):
+    '''
+    
+    '''
+    view_matrix = pyb.computeViewMatrixFromYawPitchRoll(
+        cameraTargetPosition, 
+        distance, 
+        yaw, 
+        pitch, 
+        0.0,
+        upAxisIndex=2
+        )
+    proj_matrix = pyb.computeProjectionMatrixFOV(
+        fov=60,
+        aspect=16/9,
+        nearVal=0.1,
+        farVal=100
+    )
+    return client_obj.getCameraImage(
+        width=1920, 
+        height=1080, 
+        viewMatrix=view_matrix, 
+        projectionMatrix=proj_matrix,
+        # shadow=1,
+        flags=pyb.ER_SEGMENTATION_MASK_OBJECT_AND_LINKINDEX,
+        renderer=pyb.ER_BULLET_HARDWARE_OPENGL,
+        lightAmbientCoeff = 0.6,
+        lightDiffuseCoeff = 0.35,
+        lightSpecularCoeff = 0.05,
+    )
+
 
 def get_path(start_state, goal_state, si, total_time=10):
     '''
