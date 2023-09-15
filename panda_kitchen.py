@@ -197,7 +197,7 @@ if __name__=="__main__":
             )
             test_state = ob.State(space)
             goal_samples = []
-            for _ in range(10):
+            for _ in range(20):
                 goal_region.sampleGoal(test_state)
                 sample_goal = np.array([test_state[i] for i in range(7)])
                 goal_samples.append(sample_goal)
