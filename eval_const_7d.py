@@ -357,14 +357,13 @@ def get_search_dist(normalized_path, path, map_data, context_encoder, decoder_mo
 import spatialmath as spm
 class ConstraintFunctions:
     ''' A helper class for calculating constraints'''
-    def __init__(self, quantizer_model, initial_joint_pose, tolerance):
+    def __init__(self, initial_joint_pose, tolerance):
         '''
         :param client_id:
         :param quantizer_model: 
         :param initial_joint_pose: The initial joint config, used to set orientation constraint.
         :param tolerance: The tolerance of each constraint.
         '''
-        self.quantizer_model = quantizer_model
         self.tolerance = tolerance
         self.panda_model = rtb.models.DH.Panda()
         self.target_ori = self.panda_model.fkine(initial_joint_pose).R
@@ -440,7 +439,7 @@ def get_search_proj_dist(normalized_path, path, map_data, context_encoder, decod
     # tolerance = np.array([0.1, 2*np.pi, 2*np.pi])
     # tolerance = np.array([0.1, 0.1, 2*np.pi])
     tolerance = np.array([2*np.pi, 0.1, 0.1])
-    constraint_obj = ConstraintFunctions(quantizer_model, path[0], tolerance = tolerance)
+    constraint_obj = ConstraintFunctions(path[0], tolerance = tolerance)
     start_time = time.time()
     start_n_goal = torch.as_tensor(normalized_path[[0, -1], :7], dtype=torch.float)
     env_input = tg_data.Batch.from_data_list([map_data])
