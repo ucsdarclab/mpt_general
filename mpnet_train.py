@@ -11,7 +11,7 @@ import argparse
 from torch.utils.tensorboard import SummaryWriter
 
 from mpnet_models import MLP, Encoder
-from data_loader import MPNetDataLoader, MPNet14DDataLoader, get_mpnet_padded_seq
+from data_loader import MPNetDataLoader, MPNet7DDataLoader, MPNet14DDataLoader, get_mpnet_padded_seq
 
 
 def train_epoch(train_dataset, encoder, mlp, criterion, optimizer, device):
@@ -85,7 +85,7 @@ if __name__ == "__main__":
     parser.add_argument('--enc_input_size', type=int, default=16053)
     parser.add_argument('--enc_output_size', type=int, default=60)
     parser.add_argument('--mlp_output_size', type=int, default=7)
-    parser.add_argument('--robot', help="Choose the robot model to train", choices=['6D', '14D'])
+    parser.add_argument('--robot', help="Choose the robot model to train", choices=['6D', '7D', '14D'])
     parser.add_argument('--cont', help="Continue training the model", action='store_true')
 
     args = parser.parse_args()
@@ -106,6 +106,10 @@ if __name__ == "__main__":
         # Create dataset objects.
         train_dataset = MPNetDataLoader('/root/data/pandav3/train', list(range(2000)), args.enc_input_size//3)
         val_dataset = MPNetDataLoader('/root/data/pandav3/val', list(range(2000, 2500)), args.enc_input_size//3)
+    elif args.robot=='7D':
+        # Create dataset objects.
+        train_dataset = MPNet7DDataLoader('/root/data/pandav4/train', list(range(1, 899))+list(range(961, 2001)), args.enc_input_size//3)
+        val_dataset = MPNet7DDataLoader('/root/data/pandav4/val', list(range(2001, 2500)), args.enc_input_size//3)
     elif args.robot=='14D':
         train_dataset = MPNet14DDataLoader('/root/data/bi_panda/train', list(range(1, 2000)), args.enc_input_size//3)
         val_dataset = MPNet14DDataLoader('/root/data/bi_panda/val', list(range(2001, 2500)), args.enc_input_size//3)
