@@ -269,7 +269,7 @@ class EndEffectorConstraint(ob.Constraint):
         self.robotID = robotID
         self.jointsID = jointsID
         self.panda_model = rtb.models.DH.Panda()
-        super().__init__(7, 3)
+        super().__init__(7, 2)
 
     def get_current_position(self, q):
         '''
@@ -291,20 +291,25 @@ class EndEffectorConstraint(ob.Constraint):
         orient_diff = self.fix_orient_R.T@self.panda_model.fkine(x).R
         angle, axis = spm.base.tr2angvec(orient_diff)
         axis_error = angle*axis
-        for i in range(3):
+        for i in range(1, 3):
             if  abs(axis_error[i])<self.tolerance[i]:
-                out[i] = 0.0
+                out[i-1] = 0.0
             else:
-                out[i] = abs(axis_error[i])
+                out[i-1] = abs(axis_error[i])
     
     def bound_derivative(self, error):
         '''
         Returns the jacobian of the bound.
         '''
         gradient = np.zeros((3, 3))
-        for i, e_i in enumerate(error):
-            if abs(e_i)>self.tolerance[i]:
-                gradient[i, i] = e_i/abs(e_i)
+        # for i, e_i in enumerate(error):
+        #     if abs(e_i)>self.tolerance[i]:
+        #         gradient[i, i] = e_i/abs(e_i)
+        for i in [1, 2]:
+            if error[i]>0:
+                gradient[i, i] = 1.0
+            else:
+                gradient[i, i] = -1.0
         return gradient
 
     # Jacobian 1
@@ -314,11 +319,10 @@ class EndEffectorConstraint(ob.Constraint):
         angle, axis = spm.base.tr2angvec(orient_diff)
         bound_gradient = self.bound_derivative(angle*axis)
         error_jacobian = bound_gradient@self.fix_orient_R.T@self.panda_model.jacob0(x, half='rot')
-        for r in range(3):
+        for r in range(1, 3):
             for c in range(7):
-                out[r, c] = error_jacobian[r, c]
-        out = error_jacobian.copy()
-
+                out[r-1, c] = error_jacobian[r, c]
+        # out = error_jacobian.copy()
 
 def get_numpy_state(state):
     ''' Return the state as a numpy array.
