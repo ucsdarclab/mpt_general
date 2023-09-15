@@ -251,7 +251,7 @@ def get_constraint_path(start, world_T_obj, validity_checker_obj, constraint_fun
 
     # Attempt to solve the planning problem in the given time
     start_time = time.time()
-    total_time = kwargs['plan_time'] if 'plan_time' in kwargs.keys() else 30
+    total_time = kwargs.get('plan_time', 30) # If not plan time found, use 30sec
     solved = planner.solve(total_time)
     # if not pdef.hasExactSolution():
     #     # Redo the state sampler
