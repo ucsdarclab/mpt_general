@@ -207,21 +207,32 @@ if __name__=="__main__":
             timing_dict['patch_time'] = 0.0
             timing_dict['plan_time'] = 0.0
             timing_dict['num_vertices'] = 0.0
-        for can_goal_q in goal_samples:
-            with ipk.Timer() as timer:
-                if use_model:
+            for can_goal_q in goal_samples:
+                with ipk.Timer() as timer:
                     # Single search
                     n_start_n_goal = (np.r_[can_start_q[None, :], can_goal_q[None, :]]-pu.q_min)/(pu.q_max-pu.q_min)
-                    search_dist_mu, search_dist_sigma, _ = ec7.get_search_dist(
-                        n_start_n_goal, 
-                        None, 
-                        map_data, 
-                        context_env_encoder, 
-                        decoder_model, 
-                        ar_model, 
-                        quantizer_model, 
-                        num_keys
-                    )
+                    if latent_project:
+                        search_dist_mu, search_dist_sigma, patch_time = ec7.get_search_proj_distv2(
+                            n_start_n_goal,
+                            can_start_q[None, :],
+                            map_data,
+                            context_env_encoder,
+                            decoder_model,
+                            ar_model,
+                            quantizer_model,
+                            num_keys
+                        )
+                    else:
+                        search_dist_mu, search_dist_sigma, _ = ec7.get_search_dist(
+                            n_start_n_goal, 
+                            None, 
+                            map_data, 
+                            context_env_encoder, 
+                            decoder_model, 
+                            ar_model, 
+                            quantizer_model, 
+                            num_keys
+                        )
                     # # Multi-search
                     # n_start = (can_start_q[None, :]-pu.q_min)/(pu.q_max-pu.q_min)
                     # n_goals = (goal_samples-pu.q_min)/(pu.q_max-pu.q_min)
@@ -235,41 +246,52 @@ if __name__=="__main__":
                     #     quantizer_model, 
                     #     num_keys
                     # )
-                else:
-                    search_dist_mu, search_dist_sigma = None, None
-            timing_dict['patch_time'] +=timer()
-            # traj_cupboard, path_length, plan_time, num_vertices , success = ikd.get_constraint_path(
-            #     can_start_q, 
-            #     world_T_can, 
-            #     validity_checker_obj, 
-            #     constraint_function, 
-            #     search_dist_mu, 
-            #     search_dist_sigma,
-            #     plan_time=5
-            # )
-            traj_cupboard, path_length, plan_time, num_vertices , success = ikd.get_constraint_path_v2(
-                can_start_q, 
-                can_goal_q, 
-                validity_checker_obj, 
-                constraint_function, 
-                search_dist_mu, 
-                search_dist_sigma,
-                plan_time=2.5
-            )
-            timing_dict['plan_time']+=plan_time
-            timing_dict['num_vertices']+=num_vertices
-            if success:
-                break
-        timing_dict['path_length'] = path_length
+                timing_dict['patch_time'] +=timer()
+                print("Planning using v2")
+                traj_cupboard, path_length, plan_time, num_vertices , success = ikd.get_constraint_path_v2(
+                    can_start_q, 
+                    can_goal_q, 
+                    validity_checker_obj, 
+                    constraint_function, 
+                    search_dist_mu, 
+                    search_dist_sigma,
+                    plan_time=2.5
+                )
+                timing_dict['path_length'] = path_length
+                timing_dict['plan_time']+=plan_time
+                timing_dict['num_vertices']+=num_vertices
+                if success:
+                    break
+        else:
+            search_dist_mu, search_dist_sigma = None, None
+            traj_cupboard, path_length, plan_time, num_vertices , success = ikd.get_constraint_path(
+                            can_start_q, 
+                            world_T_can, 
+                            validity_checker_obj, 
+                            constraint_function, 
+                            search_dist_mu, 
+                            search_dist_sigma,
+                            plan_time=100,
+                            state_space=state_space
+                        )
+            timing_dict['patch_time'] = 0.0
+            timing_dict['plan_time'] = plan_time
+            timing_dict['path_length'] = path_length
+            timing_dict['num_vertices']=num_vertices
+
         timing_dict['env_num'] = env_num
         timing_dict['success'] = success
 
         run_data.append(timing_dict)
     
+    result_log_folder = '/root/data/panda_constraint'
     if use_model:
-        file_name = f'kitchen_timing_const_vqmpt_single_multi_sample.pkl'
+        if latent_project:
+            file_name = f'kitchen_timing_const_vqmpt_proj_single_multi_sample_20.pkl'
+        else:
+            file_name = f'kitchen_timing_const_vqmpt_single_multi_sample_20.pkl'
     else:
-        file_name = f'kitchen_timing_const.pkl'
+        file_name = f'kitchen_timing_const_{state_space}.pkl'
     
-    with open(file_name, 'wb') as f:
+    with open(osp.join(result_log_folder, file_name), 'wb') as f:
         pickle.dump(run_data, f)
