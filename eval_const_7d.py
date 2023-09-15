@@ -355,6 +355,16 @@ def get_search_dist(normalized_path, path, map_data, context_encoder, decoder_mo
     return search_dist_mu, search_dist_sigma, patch_time
 
 import spatialmath as spm
+
+def calculate_angle_error(delta_orient):
+    '''
+    Convert error in angle orientation to angular error.
+    :param delta_orient: Change in orientation in rotation matrix.
+    :returns np.array: error written in angular error.
+    '''
+    angle, axis = spm.base.tr2angvec(delta_orient)
+    return angle*axis
+
 class ConstraintFunctions:
     ''' A helper class for calculating constraints'''
     def __init__(self, initial_joint_pose, tolerance):
@@ -386,6 +396,19 @@ class ConstraintFunctions:
                 out[i] = abs(axis_error[i])
         return out
 
+    def function_batch(self, x):
+        '''
+        Evaluate the function for a batch of data.
+        '''
+        # Get the pose of the robot.
+        orient_diff = self.target_ori.T[None, :, :]@self.panda_model.fkine(x).R
+        F = np.array(list(map(calculate_angle_error, orient_diff)))
+        for i in range(3):
+            sel_index = np.abs(F[:, i])<self.tolerance[i]
+            F[:, i] = np.abs(F[:, i])
+            F[sel_index, i] = 0.0
+        return F
+
     def bound_derviate(self, error):
         '''
         Returns the jacobian of the bound.
@@ -407,6 +430,23 @@ class ConstraintFunctions:
         bound_gradient = self.bound_derviate(angle*axis)
         error_jacobian = bound_gradient@self.target_ori.T@self.panda_model.jacob0(q, half='rot')
         return error_jacobian
+
+    def jacobian_batch(self, q):
+        '''
+        Evaluate the Jacobian of the F(q)^TF(q) wrt to the joint angles for a batch of angles.
+        :param q: An array of joint angles.
+        :returns np.array: numpy array of batch jacobians.
+        '''
+        orient_diff = self.target_ori.T[None, :, :]@self.panda_model.fkine(q).R
+        F = np.array(list(map(calculate_angle_error, orient_diff)))
+        bound_gradient = np.zeros((q.shape[0], 3, 3))
+        for i in range(3):
+            sel_index = np.abs(F[:, i])<self.tolerance[i]
+            bound_gradient[:, i, i] = F[:, i]/np.abs(F[:, i])
+            bound_gradient[sel_index, i] = 0.0
+        robot_jacobian = np.array(list(map(lambda q_i: self.panda_model.jacob0(q_i, half='rot'), q)))
+        error_jacobian = bound_gradient@self.target_ori.T[None, :]@robot_jacobian
+        return error_jacobian 
 
 
 def back_tracking(f, x0, delta, gamma, N):
