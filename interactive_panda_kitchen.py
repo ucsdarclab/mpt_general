@@ -28,6 +28,8 @@ import torch_geometric.data as tg_data
 
 import open3d as o3d
 import json
+import spatialmath as smp
+import roboticstoolbox as rtb
 
 from ompl_utils import get_ompl_state, get_numpy_state
 
@@ -38,6 +40,8 @@ from modules.encoder import EncoderPreNorm
 from modules.autoregressive import AutoRegressiveModel, EnvContextCrossAttModel
 
 import eval_const_7d as ec7
+import interactive_kitchen_dev as ikd
+import panda_constraint_shelf as pcs
 
 def add_debug_point(client_id, pose):
     colors = np.zeros_like(pose)
@@ -411,6 +415,28 @@ def follow_trajectory(client_id, robotID, jointsID, q_traj):
             # Update current position
             j_c = pu.get_joint_position(client_id, robotID, jointsID)
             count += 1
+
+def add_ycb_objects(client_id, obj_name, base_pose, base_orientation=[0, 0, 0]):
+    '''
+    Function to add a ycb_object into the given client.
+    :param client_id: Pybullet client object.
+    :param obj_name: string of the object to be placed.
+    :param base_pose: 3-dim array/list defining the pose of the object in world co-ord.
+    :param base_orientation: 3-dim array defining orientation using euler angles.
+    :returns int: pybullet object id.
+    '''
+    assert obj_name in [
+        'YcbChipsCan', 
+        'YcbCrackerBox', 
+        'YcbMasterChefCan', 
+        'YcbPottedMeatCan', 
+        'YcbMustardBottle'
+    ]
+    path_to_urdf = osp.join(ycb_objects.getDataPath(), obj_name, "model.urdf")
+    base_orietnation_q = p.getQuaternionFromEuler(base_orientation)
+    itm_id = client_id.loadURDF(path_to_urdf, base_pose, base_orietnation_q)
+    return itm_id
+
 
 def set_env(client_id, seed=0):
     '''
