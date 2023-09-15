@@ -45,6 +45,9 @@ import panda_constraint_shelf as pcs
 
 if __name__=="__main__":
     use_model = True
+    state_space = "PJ"
+    latent_project = False
+
     # Server for collision checking
     p_collision = pu.get_pybullet_server('direct')
     # Server for collision checking
