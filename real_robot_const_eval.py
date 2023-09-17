@@ -171,12 +171,16 @@ if __name__ == "__main__":
     parser.add_argument('--dict_model_folder', help="Folder where dictionary model is stored")
     parser.add_argument('--ar_model_folder', help="Folder where AR model is stored")
     parser.add_argument('--samples', help="Number of samples to collect", type=int)
-    parser.add_argument('--state_space', help="Types node expansion", choices=['PJ', 'AT', 'TB'])
+    parser.add_argument('--state_space', help="Types node expansion", choices=['PJ', 'AT', 'TB'], default='PJ')
 
     args = parser.parse_args()
 
+    with open('start_goal_config_const.pkl', 'rb') as f:
+        start_goal_configs = pickle.load(f)
+
     panda_model = rtb.models.DH.Panda()
     use_model = False if args.dict_model_folder is None else True
+    latent_project = False
     if use_model:
         print("Using model")
         # ========================= Load trained model ===========================
@@ -239,6 +243,7 @@ if __name__ == "__main__":
     pathVertices = []
     pathPlanned = []
     predict_seq_time = []
+    pathLength = []
     
     path_try = 0
 
@@ -256,69 +261,89 @@ if __name__ == "__main__":
     # Define a validity checker object
     validity_checker_obj = PCStateValidityChecker(si)
 
-    # TODO: Define the start and goal pose!!
+    # Define the start and goal pose!!
     # Config 1 
-    config_num=5
-    joint_path = np.array([
-        [-2.4250823384067606, -1.2798519129000212, 1.2391232564993069, -2.0538458376625264, 0.26119280460145733, 2.953120983772808, 1.635956806363331],
-        [0.06807870748063974, 1.6646113433837888, 1.0090846130425797, -2.452916619079385, -0.17679152705934312, 2.578336533241802, -1.2111141838395936]
-    ])
 
-    # TODO: Check the constraints 
+    # config_num=5
+    # joint_path = np.array([
+    #     [-2.4250823384067606, -1.2798519129000212, 1.2391232564993069, -2.0538458376625264, 0.26119280460145733, 2.953120983772808, 1.635956806363331],
+    #     [0.06807870748063974, 1.6646113433837888, 1.0090846130425797, -2.452916619079385, -0.17679152705934312, 2.578336533241802, -1.2111141838395936]
+    # ])
+
+    # Check the constraints 
     tolerance = np.array([2*np.pi, 0.1, 0.1])
     can_T_ee = np.array([[0., 0., 1, 0.], [0, -1, 0, 0], [1, 0, 0, 0], [0, 0, 0, 1]])
     constraint_function = pcs.EndEffectorConstraint(can_T_ee[:3, :3], tolerance, None, None)
-    
-    # TODO: Define path_obj for the single path.
-    path_obj = None
-    if use_model:
-        # TODO: Get point cloud from robot base!!
-        # data_PC = o3d.io.read_point_cloud('map_2000.pcd')
-        data_PC = o3d.io.read_point_cloud('crop_downsample_transform_scene.pcd')
-        depth_points = np.array(data_PC.points)
-        map_data = tg_data.Data(pos=torch.as_tensor(depth_points, dtype=torch.float, device=device))
-        
-        path = (joint_path-pu.q_min)/(pu.q_max-pu.q_min)
-        # TODO: Get search Distribution
-        search_dist_mu, search_dist_sigma, patch_time = None, None, None
-    else:
-        # Plan paths that are within 10% of the given path length.
-        path_obj = None
-        print("Not using model, using uniform distribution")
-        search_dist_mu, search_dist_sigma, patch_time = None, None, 0.0
-
-    # import pdb;pdb.set_trace()
-    # Get a path for a given start and goal config
-    planned_path, path_length, t, v , s = ikd.get_constraint_path_v2(
-                    joint_path[0], 
-                    joint_path[1], 
-                    validity_checker_obj, 
-                    constraint_function, 
-                    search_dist_mu, 
-                    search_dist_sigma,
-                    plan_time=80
-                )
-
-    # Get path for a given TSR Region
-    # planned_path, t, v, s = traj_cupboard, path_length, plan_time, num_vertices , success = ikd.get_constraint_path(
-    #                         can_start_q, 
-    #                         world_T_can, 
-    #                         validity_checker_obj, 
-    #                         constraint_function, 
-    #                         search_dist_mu, 
-    #                         search_dist_sigma,
-    #                         plan_time=100,
-    #                         state_space=args.state_space
-    #                     )
-    
-    if s:
-        print(f"Plan Time: {t}")
+    for joint_path in start_goal_configs:
         if use_model:
-            traj_file = f'traj_config_const_{config_num}.pkl'
+            # Get point cloud from robot base!!
+            # data_PC = o3d.io.read_point_cloud('map_2000.pcd')
+            data_PC = o3d.io.read_point_cloud('crop_downsample_transform_scene.pcd')
+            depth_points = np.array(data_PC.points)
+            map_data = tg_data.Data(pos=torch.as_tensor(depth_points, dtype=torch.float, device=device))
+            
+            path = (joint_path-pu.q_min)/(pu.q_max-pu.q_min)
+            # Get search Distribution
+            if latent_project:
+                search_dist_mu, search_dist_sigma, patch_time = ec7.get_search_proj_distv2(
+                                path,
+                                joint_path[0][None, :],
+                                map_data,
+                                context_env_encoder,
+                                decoder_model,
+                                ar_model,
+                                quantizer_model,
+                                num_keys
+                            )
+            else:
+                search_dist_mu, search_dist_sigma, patch_time = ec7.get_search_dist(
+                            path,
+                            joint_path[0][None, :],
+                            map_data,
+                            context_env_encoder,
+                            decoder_model,
+                            ar_model,
+                            quantizer_model,
+                            num_keys
+                        )
         else:
-            traj_file = f'traj_config_rrtconnect_const_{config_num}.pkl'
-        with open(traj_file, 'wb') as f:
-            pickle.dump({'robot_traj': planned_path},f)
+            # Plan paths that are within 10% of the given path length.
+            path_obj = None
+            print("Not using model, using uniform distribution")
+            search_dist_mu, search_dist_sigma, patch_time = None, None, 0.0
+
+        # import pdb;pdb.set_trace()
+        # Get a path for a given start and goal config
+        planned_path, path_length, t, v , s = ikd.get_constraint_path_v2(
+                        joint_path[0], 
+                        joint_path[1], 
+                        validity_checker_obj, 
+                        constraint_function, 
+                        search_dist_mu, 
+                        search_dist_sigma,
+                        plan_time=100
+                    )
+
+        # Get path for a given TSR Region
+        # planned_path, t, v, s = traj_cupboard, path_length, plan_time, num_vertices , success = ikd.get_constraint_path(
+        #                         can_start_q, 
+        #                         world_T_can, 
+        #                         validity_checker_obj, 
+        #                         constraint_function, 
+        #                         search_dist_mu, 
+        #                         search_dist_sigma,
+        #                         plan_time=100,
+        #                         state_space=args.state_space
+        #                     )
+        
+    # if s:
+    #     print(f"Plan Time: {t}")
+    #     if use_model:
+    #         traj_file = f'traj_config_const_{config_num}.pkl'
+    #     else:
+    #         traj_file = f'traj_config_rrtconnect_const_{config_num}.pkl'
+    #     with open(traj_file, 'wb') as f:
+    #         pickle.dump({'robot_traj': planned_path},f)
     
     # Display planned path
     # robot = moveit_commander.RobotCommander()
@@ -327,17 +352,22 @@ if __name__ == "__main__":
     # display_trajectory = moveit_msgs.msg.DisplayTrajectory()
     # display_trajectory.trajectory_start = robot.get_current_state()
 
-    # pathSuccess.append(s)
-    # pathTime.append(t)
-    # pathVertices.append(v)
-    # pathTimeOverhead.append(t)
-    # pathPlanned.append(np.array(planned_path))
-    # predict_seq_time.append(patch_time)
+        pathSuccess.append(s)
+        pathLength.append(path_length)
+        pathTime.append(t)
+        pathVertices.append(v)
+        pathTimeOverhead.append(t)
+        pathPlanned.append(np.array(planned_path))
+        predict_seq_time.append(patch_time)
 
 
-    # pathData = {'Time':pathTime, 'Success':pathSuccess, 'Vertices':pathVertices, 'PlanTime':pathTimeOverhead, 'PredictTime': predict_seq_time, 'Path': pathPlanned}
-    # if use_model:
-    #     fileName = osp.join(ar_model_folder, f'real_world_{args.state_space}_{0:06d}.p')
-    # else:
-    #     fileName = f'/root/data/general_mpt/real_world_{args.state_space}_{0:06d}.p'
-    # pickle.dump(pathData, open(fileName, 'wb'))
+    
+    pathData = {'Time':pathTime, 'Success':pathSuccess, 'Vertices':pathVertices, 'PlanTime':pathTimeOverhead, 'PredictTime': predict_seq_time, 'Path': pathPlanned, 'PathLength':pathLength}
+    if use_model:
+        if latent_project:
+            fileName = osp.join('/root/data/panda_constraint', f'real_world_opt_cvqmpt.p')
+        else:
+            fileName = osp.join('/root/data/panda_constraint', f'real_world_cvqmpt.p')
+    else:
+        fileName = f'/root/data/panda_constraint/real_world_{args.state_space}.p'
+    pickle.dump(pathData, open(fileName, 'wb'))
