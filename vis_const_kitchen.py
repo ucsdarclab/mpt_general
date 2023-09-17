@@ -32,6 +32,13 @@ import interactive_kitchen_dev as ikd
 import panda_constraint_shelf as pcs
 
 
+# Function to apply a moving average filter
+def moving_average(data, window_size):
+    cumsum = np.cumsum(data, axis=0)
+    cumsum[window_size:] = cumsum[window_size:] - cumsum[:-window_size]
+    smoothed_traj = cumsum[window_size - 1:] / window_size
+    return np.r_[data[:window_size-2, :], smoothed_traj, data[-1][None, :]]
+
 if __name__ == "__main__":
     # Server for visualization/execution
     p = pu.get_pybullet_server('gui')
