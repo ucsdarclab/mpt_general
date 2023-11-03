@@ -1,7 +1,7 @@
 # VQ-MPT
 This repo contains our code for replicating all our experiments. We have provided a new package called [VQ-MPT](https://github.com/jacobjj/vqmpt), an independent code base to generate the sampling distributions using VQ-MPT.
 
-For more details on the paper, visit our [website](https://sites.google.com/eng.ucsd.edu/vq-mpt/home)
+For more details on the paper, visit our [website](https://sites.google.com/ucsd.edu/vq-mpt/home)
 ## Model Training
 
 To train stage 1, you can run `train_stage1_panda.py <args>`. For more info about the arguments, run `train_stage1_panda.py -h`
